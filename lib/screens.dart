@@ -200,6 +200,16 @@ class LibraryScreen extends StatelessWidget {
         ...lib.liked.take(30).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: lib.liked, index: e.key)),
       ],
 
+      if (lib.downloads.isNotEmpty) ...[
+        const SectionHeader('Downloaded'),
+        ListTile(
+          leading: const CircleAvatar(backgroundColor: Color(0xFF22C55E), child: Icon(Icons.download_done, color: Colors.white)),
+          title: Text('${lib.downloads.length} songs · offline'),
+          onTap: () => player.playList(lib.downloads, 0),
+        ),
+        ...lib.downloads.asMap().entries.map((e) => SongTile(song: e.value, queue: lib.downloads, index: e.key)),
+      ],
+
       if (lib.followed.isNotEmpty) ...[
         const SectionHeader('Following'),
         CardShelf(children: lib.followed.map((a) => ArtistCardW(artist: a)).toList()),

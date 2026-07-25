@@ -23,6 +23,7 @@ Future<void> main() async {
   await Future.wait([settings.init(), library.init()]);
   final player = Player()..autoplay = settings.autoplay;
   player.onPlayed = library.addHistory;
+  player.localPath = library.downloadPath; // play offline files when available
 
   runApp(MultiProvider(
     providers: [

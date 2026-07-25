@@ -109,10 +109,19 @@ class Deezer {
     } catch (_) { return []; }
   }
 
+  // Audio dramas / audiobooks that pollute Deezer's global artist chart.
+  static final _nonMusic = RegExp(
+      r'\?\?\?|h[oö]rspiel|h[oö]rbuch|\bfolge\s*\d|drei fragezeichen|\bTKKG\b|bibi|benjamin bl|conni|five nights|asmr|white noise|sleep sounds',
+      caseSensitive: false);
+
   static Future<List<Artist>> chartArtists({int limit = 20}) async {
     try {
-      final data = ((await _get('/chart/0/artists?limit=$limit'))['data'] as List?) ?? [];
-      return data.map((e) => Artist.fromDeezer(e as Map<String, dynamic>)).toList();
+      final data = ((await _get('/chart/0/artists?limit=${limit + 12}'))['data'] as List?) ?? [];
+      return data
+          .map((e) => Artist.fromDeezer(e as Map<String, dynamic>))
+          .where((a) => !_nonMusic.hasMatch(a.name))
+          .take(limit)
+          .toList();
     } catch (_) { return []; }
   }
 

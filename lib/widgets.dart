@@ -6,6 +6,7 @@ import 'player.dart';
 import 'store.dart';
 import 'settings.dart';
 import 'detail.dart';
+import 'downloads.dart';
 
 const surface = Color(0xFF16161f);
 
@@ -31,16 +32,20 @@ class SongTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final player = context.read<Player>();
     final lib = context.watch<Library>();
+    final playing = context.watch<Player>().current?.deezerId == song.deezerId;
     final liked = lib.isLiked(song.deezerId);
+    final downloaded = lib.isDownloaded(song.deezerId);
     return ListTile(
       onTap: () => player.playList(queue, index),
       onLongPress: () => showSongMenu(context, song),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       leading: showArt ? cover(song.cover, 50) : null,
-      title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: playing ? Theme.of(context).colorScheme.primary : null, fontWeight: playing ? FontWeight.w700 : null)),
       subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (liked) const Icon(Icons.favorite, size: 18, color: Color(0xFFEC4899)),
+        if (downloaded) const Icon(Icons.download_done, size: 16, color: Colors.white38),
+        if (liked) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.favorite, size: 18, color: Color(0xFFEC4899))),
         IconButton(icon: const Icon(Icons.more_vert), onPressed: () => showSongMenu(context, song)),
       ]),
     );
@@ -51,7 +56,9 @@ void showSongMenu(BuildContext context, Song song) {
   final player = context.read<Player>();
   final lib = context.read<Library>();
   final settings = context.read<Settings>();
+  final messenger = ScaffoldMessenger.of(context);
   final liked = lib.isLiked(song.deezerId);
+  final downloaded = lib.isDownloaded(song.deezerId);
 
   void act(String key) {
     Navigator.pop(context);
@@ -61,23 +68,35 @@ void showSongMenu(BuildContext context, Song song) {
       case 'like': lib.toggleLike(song); break;
       case 'playlist': _addToPlaylist(context, song); break;
       case 'radio': player.playList([song], 0); break;
+      case 'download':
+        if (downloaded) { Downloads.delete(lib, song); messenger.showSnackBar(const SnackBar(content: Text('Removed download'), duration: Duration(milliseconds: 1100))); }
+        else {
+          messenger.showSnackBar(const SnackBar(content: Text('Downloading…'), duration: Duration(milliseconds: 1200)));
+          Downloads.download(player, lib, song).then((ok) =>
+            messenger.showSnackBar(SnackBar(content: Text(ok ? 'Downloaded' : 'Download failed'), duration: const Duration(milliseconds: 1200))));
+        }
+        break;
       case 'album': if (song.albumId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: song.albumId!, title: song.album ?? ''))); break;
       case 'artist': if (song.artistId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: song.artistId!, name: song.artist))); break;
-      default: ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Noted'), duration: Duration(milliseconds: 900)));
+      default: messenger.showSnackBar(const SnackBar(content: Text('Noted'), duration: Duration(milliseconds: 900)));
     }
   }
 
   IconData ic(String k) => {
         'playNext': Icons.skip_next, 'queue': Icons.queue_music, 'like': liked ? Icons.favorite : Icons.favorite_border,
-        'playlist': Icons.playlist_add, 'radio': Icons.radio, 'album': Icons.album, 'artist': Icons.person,
-        'hide': Icons.not_interested, 'block': Icons.block,
+        'playlist': Icons.playlist_add, 'radio': Icons.radio, 'download': downloaded ? Icons.download_done : Icons.download,
+        'album': Icons.album, 'artist': Icons.person, 'hide': Icons.not_interested, 'block': Icons.block,
       }[k] ?? Icons.circle;
+
+  String label(String k) => k == 'download' ? (downloaded ? 'Downloaded' : 'Download') : (allMenuActions[k] ?? k);
 
   showModalBottomSheet(
     context: context,
     backgroundColor: const Color(0xFF14141f),
+    isScrollControlled: true,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
     builder: (_) => SafeArea(
+      child: SingleChildScrollView(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(
           leading: cover(song.cover, 46),
@@ -98,7 +117,7 @@ void showSongMenu(BuildContext context, Song song) {
                   child: Column(children: [
                     Icon(ic(k), color: k == 'like' && liked ? const Color(0xFFEC4899) : null),
                     const SizedBox(height: 6),
-                    Text(allMenuActions[k] ?? k, style: const TextStyle(fontSize: 12), textAlign: TextAlign.center),
+                    Text(label(k), style: const TextStyle(fontSize: 12), textAlign: TextAlign.center),
                   ]),
                 ),
               ),
@@ -108,10 +127,10 @@ void showSongMenu(BuildContext context, Song song) {
         const Divider(height: 1),
         ...settings.menuOptions
             .where((k) => !(k == 'album' && song.albumId == null) && !(k == 'artist' && song.artistId == null))
-            .map((k) => ListTile(dense: true, leading: Icon(ic(k), size: 22), title: Text(allMenuActions[k] ?? k), onTap: () => act(k))),
+            .map((k) => ListTile(dense: true, leading: Icon(ic(k), size: 22), title: Text(label(k)), onTap: () => act(k))),
         const SizedBox(height: 8),
       ]),
-    ),
+    )),
   );
 }
 
@@ -222,4 +241,67 @@ class ArtistCardW extends StatelessWidget {
           ]),
         ),
       );
+}
+
+// ---- Visible queue (Now Playing → queue icon) ----
+void showQueue(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF14141f),
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (_) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.92,
+      builder: (context, scroll) => Consumer<Player>(builder: (context, p, _) {
+        final up = p.upNext;
+        final radio = p.radioNext;
+        return ListView(controller: scroll, children: [
+          const Padding(padding: EdgeInsets.fromLTRB(20, 14, 20, 4),
+            child: Text('Queue', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
+          if (p.current != null) ...[
+            const _MiniHeader('Now playing'),
+            ListTile(
+              leading: cover(p.current!.cover, 46),
+              title: Text(p.current!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(p.current!.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: Icon(Icons.equalizer, color: Theme.of(context).colorScheme.primary),
+            ),
+          ],
+          if (up.isNotEmpty) ...[
+            const _MiniHeader('Next in queue'),
+            ...up.asMap().entries.map((e) => ListTile(
+              key: ValueKey('q${e.value.deezerId}_${e.key}'),
+              leading: cover(e.value.cover, 46),
+              title: Text(e.value.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(e.value.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+              onTap: () => p.playUpNext(e.key),
+              trailing: IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => p.removeUpNext(e.key)),
+            )),
+          ],
+          if (radio.isNotEmpty) ...[
+            const _MiniHeader('Autoplay radio'),
+            ...radio.take(10).map((s) => ListTile(
+              leading: Opacity(opacity: 0.7, child: cover(s.cover, 46)),
+              title: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70)),
+              subtitle: Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+            )),
+          ],
+          if (up.isEmpty && radio.isEmpty)
+            const Padding(padding: EdgeInsets.all(30), child: Center(child: Text('Nothing queued.\nAdd songs with “Play next”.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38)))),
+          const SizedBox(height: 20),
+        ]);
+      }),
+    ),
+  );
+}
+
+class _MiniHeader extends StatelessWidget {
+  final String text;
+  const _MiniHeader(this.text);
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+    child: Text(text.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: Colors.white38)));
 }

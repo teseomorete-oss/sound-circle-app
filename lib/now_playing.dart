@@ -63,6 +63,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
               Row(children: [
                 IconButton(icon: const Icon(Icons.keyboard_arrow_down, size: 32), onPressed: () => Navigator.pop(context)),
                 const Spacer(),
+                IconButton(icon: const Icon(Icons.queue_music), onPressed: () => showQueue(context)),
                 IconButton(
                   icon: Icon(showLyrics ? Icons.image : Icons.lyrics_outlined),
                   onPressed: () => setState(() => showLyrics = !showLyrics)),
@@ -99,12 +100,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
               ),
               const SizedBox(height: 8),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                IconButton(iconSize: 60,
+                IconButton(iconSize: 42, icon: const Icon(Icons.skip_previous), onPressed: p.prev),
+                const SizedBox(width: 16),
+                IconButton(iconSize: 64,
                   icon: p.loading
-                      ? const SizedBox(width: 40, height: 40, child: CircularProgressIndicator(strokeWidth: 2))
+                      ? const SizedBox(width: 42, height: 42, child: CircularProgressIndicator(strokeWidth: 2))
                       : Icon(p.playing ? Icons.pause_circle_filled : Icons.play_circle_fill),
                   onPressed: p.toggle),
-                const SizedBox(width: 20),
+                const SizedBox(width: 16),
                 IconButton(iconSize: 42, icon: const Icon(Icons.skip_next), onPressed: p.next),
               ]),
               if (p.error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(p.error!, style: const TextStyle(color: Colors.redAccent))),

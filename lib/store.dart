@@ -19,6 +19,8 @@ class Library extends ChangeNotifier {
   final List<Playlist> playlists = [];
   final List<Artist> followed = [];
   final List<Song> history = []; // most-recent first
+  final List<Song> downloads = [];        // songs saved for offline
+  final Map<int, String> _dlPaths = {};   // deezerId -> local file path
 
   SharedPreferences? _prefs;
 
@@ -28,6 +30,27 @@ class Library extends ChangeNotifier {
     _load('history', (l) => history..addAll(l.map((e) => Song.fromJson(e as Map<String, dynamic>))));
     _load('followed', (l) => followed..addAll(l.map((e) => Artist.fromJson(e as Map<String, dynamic>))));
     _load('playlists', (l) => playlists..addAll(l.map((e) => Playlist.fromJson(e as Map<String, dynamic>))));
+    _load('downloads', (l) => l.forEach((e) {
+      final m = e as Map<String, dynamic>;
+      final s = Song.fromJson(m['song'] as Map<String, dynamic>);
+      downloads.add(s); _dlPaths[s.deezerId] = m['path'] as String;
+    }));
+    notifyListeners();
+  }
+
+  bool isDownloaded(int deezerId) => _dlPaths.containsKey(deezerId);
+  String? downloadPath(int deezerId) => _dlPaths[deezerId];
+  void addDownload(Song s, String path) {
+    if (_dlPaths.containsKey(s.deezerId)) return;
+    _dlPaths[s.deezerId] = path;
+    downloads.insert(0, s);
+    _save('downloads', downloads.map((e) => {'song': e.toJson(), 'path': _dlPaths[e.deezerId]}).toList());
+    notifyListeners();
+  }
+  void removeDownload(int deezerId) {
+    _dlPaths.remove(deezerId);
+    downloads.removeWhere((s) => s.deezerId == deezerId);
+    _save('downloads', downloads.map((e) => {'song': e.toJson(), 'path': _dlPaths[e.deezerId]}).toList());
     notifyListeners();
   }
 

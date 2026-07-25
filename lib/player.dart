@@ -29,10 +29,50 @@ class Player extends ChangeNotifier {
 
   final Map<int, Uri> _urlCache = {};
   void Function(Song)? onPlayed;
+  String? Function(int deezerId)? localPath; // returns a downloaded file path if offline-saved
 
   AudioPlayer get audio => _audio;
   bool get playing => _audio.playing;
-  List<Song> get queue => _upNext;
+
+  /// The manually-queued songs coming up (Play next / Add to queue), including
+  /// the one already pre-loaded after the current track.
+  List<Song> get upNext {
+    final ci = _audio.currentIndex ?? -1;
+    final ahead = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.sublist(ci + 1) : <Song>[];
+    return [...ahead, ..._upNext];
+  }
+  List<Song> get radioNext => List.unmodifiable(_radio);
+
+  /// Remove an item from the visible up-next list (by its position in [upNext]).
+  void removeUpNext(int i) {
+    final ci = _audio.currentIndex ?? -1;
+    final aheadCount = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.length - ci - 1 : 0;
+    if (i < aheadCount) {
+      final idx = ci + 1 + i;
+      _playlist.removeAt(idx);
+      _loaded.removeAt(idx);
+    } else {
+      final j = i - aheadCount;
+      if (j >= 0 && j < _upNext.length) _upNext.removeAt(j);
+    }
+    notifyListeners();
+  }
+
+  /// Jump straight to an up-next item.
+  Future<void> playUpNext(int i) async {
+    final ci = _audio.currentIndex ?? -1;
+    final aheadCount = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.length - ci - 1 : 0;
+    if (i < aheadCount) {
+      await _audio.seek(Duration.zero, index: ci + 1 + i);
+    } else {
+      final j = i - aheadCount;
+      if (j >= 0 && j < _upNext.length) {
+        final s = _upNext.removeAt(j);
+        await playNext(s);
+        await next();
+      }
+    }
+  }
 
   Player() {
     _audio.positionStream.listen((p) { position = p; notifyListeners(); });
@@ -58,15 +98,46 @@ class Player extends ChangeNotifier {
     });
   }
 
-  Future<Uri?> _resolveUrl(Song s) async {
-    if (_urlCache.containsKey(s.deezerId)) return _urlCache[s.deezerId];
+  // Resolve a song → a playable audio stream URL. Uses the ANDROID_VR client,
+  // whose stream URLs don't need signature deciphering and play in ExoPlayer
+  // without the 403 that the default android/ios stream URLs cause.
+  Future<Uri?> _resolveYt(Song s) async {
     final results = await _yt.search.search('${s.artist} ${s.title} audio');
     final video = results.firstOrNull;
     if (video == null) return null;
-    final manifest = await _yt.videos.streamsClient.getManifest(video.id);
-    final url = manifest.audioOnly.withHighestBitrate().url;
-    _urlCache[s.deezerId] = url;
+    StreamManifest? manifest;
+    for (final client in [YoutubeApiClient.androidVr, YoutubeApiClient.ios, YoutubeApiClient.android]) {
+      try {
+        final m = await _yt.videos.streamsClient.getManifest(video.id, ytClients: [client]);
+        if (m.audioOnly.isNotEmpty) { manifest = m; break; }
+      } catch (_) {}
+    }
+    if (manifest == null) return null;
+    return manifest.audioOnly.withHighestBitrate().url;
+  }
+
+  Future<Uri?> _resolveUrl(Song s) async {
+    final local = localPath?.call(s.deezerId);
+    if (local != null) return Uri.file(local);
+    if (_urlCache.containsKey(s.deezerId)) return _urlCache[s.deezerId];
+    final url = await _resolveYt(s);
+    if (url != null) _urlCache[s.deezerId] = url;
     return url;
+  }
+
+  /// A byte stream of a song's audio (used by the downloader) — goes through
+  /// youtube_explode's own client so YouTube's range/headers requirements are met.
+  Future<Stream<List<int>>?> audioByteStream(Song s) async {
+    final results = await _yt.search.search('${s.artist} ${s.title} audio');
+    final video = results.firstOrNull;
+    if (video == null) return null;
+    for (final client in [YoutubeApiClient.androidVr, YoutubeApiClient.ios, YoutubeApiClient.android]) {
+      try {
+        final m = await _yt.videos.streamsClient.getManifest(video.id, ytClients: [client]);
+        if (m.audioOnly.isNotEmpty) return _yt.videos.streamsClient.get(m.audioOnly.withHighestBitrate());
+      } catch (_) {}
+    }
+    return null;
   }
 
   AudioSource _src(Song s, Uri url) => AudioSource.uri(url, tag: MediaItem(
@@ -122,6 +193,12 @@ class Player extends ChangeNotifier {
     if (_audio.hasNext) { await _audio.seekToNext(); return; }
     await _ensureLookahead();
     if (_audio.hasNext) await _audio.seekToNext();
+  }
+
+  Future<void> prev() async {
+    // Restart the track if we're a few seconds in, otherwise go to the previous.
+    if (_audio.position.inSeconds > 3 || !_audio.hasPrevious) { await _audio.seek(Duration.zero); }
+    else { await _audio.seekToPrevious(); }
   }
 
   // Always keep exactly one resolved track loaded after the current one, so the

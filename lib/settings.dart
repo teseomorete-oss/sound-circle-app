@@ -12,10 +12,10 @@ const accents = <String, List<Color>>{
 
 const allMenuActions = <String, String>{
   'playNext': 'Play next', 'queue': 'Add to queue', 'like': 'Like', 'playlist': 'Add to playlist',
-  'radio': 'Start radio', 'album': 'Go to album', 'artist': 'Go to artist',
+  'radio': 'Start radio', 'download': 'Download', 'album': 'Go to album', 'artist': 'Go to artist',
   'hide': 'Not interested', 'block': "Don't recommend artist",
 };
-const bigCapable = ['playNext', 'queue', 'like', 'playlist', 'radio'];
+const bigCapable = ['playNext', 'queue', 'like', 'playlist', 'radio', 'download'];
 
 class Settings extends ChangeNotifier {
   String accent = 'purple';
@@ -25,7 +25,7 @@ class Settings extends ChangeNotifier {
   bool showTrending = true;
   String displayName = '';
   List<String> menuBig = ['playNext', 'like', 'playlist'];
-  List<String> menuOptions = ['queue', 'radio', 'album', 'artist', 'hide', 'block'];
+  List<String> menuOptions = ['queue', 'radio', 'download', 'album', 'artist', 'hide', 'block'];
 
   SharedPreferences? _prefs;
 
