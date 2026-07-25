@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:palette_generator/palette_generator.dart';
 import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
@@ -20,6 +21,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   int? _lyricsForId;
   final _scroll = ScrollController();
 
+  Color _bg = const Color(0xFF3a3a4a);
+  String? _colorFor;
+
+  Future<void> _updateColor(Song s) async {
+    if (_colorFor == s.cover) return;
+    _colorFor = s.cover;
+    if (s.cover == null) return;
+    try {
+      final pg = await PaletteGenerator.fromImageProvider(CachedNetworkImageProvider(s.cover!), size: const Size(80, 80), maximumColorCount: 12);
+      final c = pg.vibrantColor?.color ?? pg.dominantColor?.color ?? pg.mutedColor?.color;
+      if (c != null && mounted) setState(() => _bg = c);
+    } catch (_) {}
+  }
+
   Future<void> _loadLyrics(Song s) async {
     if (_lyricsForId == s.deezerId) return;
     _lyricsForId = s.deezerId;
@@ -38,120 +53,150 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     return idx;
   }
 
+  // Blend the art colour toward black so text stays readable.
+  Color get _bgDark => Color.lerp(_bg, Colors.black, 0.45)!;
+  Color get _bgDeep => Color.lerp(_bg, Colors.black, 0.78)!;
+
   @override
   Widget build(BuildContext context) {
     final p = context.watch<Player>();
     final lib = context.watch<Library>();
     final s = p.current;
     if (s == null) return const SizedBox.shrink();
+    _updateColor(s);
     final liked = lib.isLiked(s.deezerId);
     if (showLyrics) _loadLyrics(s);
 
     final durMs = p.duration.inMilliseconds == 0 ? 1 : p.duration.inMilliseconds;
     final posMs = p.position.inMilliseconds.clamp(0, durMs).toDouble();
+    final art = MediaQuery.of(context).size.width - 72;
 
     return Scaffold(
-      body: Stack(children: [
-        if (s.cover != null)
-          Positioned.fill(child: CachedNetworkImage(imageUrl: s.cover!, fit: BoxFit.cover,
-              color: Colors.black.withValues(alpha: 0.6), colorBlendMode: BlendMode.darken)),
-        Positioned.fill(child: Container(color: Colors.black.withValues(alpha: 0.5))),
-        SafeArea(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: showLyrics ? [_bgDark, _bgDeep] : [_bgDark, _bgDeep, Colors.black]),
+        ),
+        child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 22),
             child: Column(children: [
+              // top bar
               Row(children: [
-                IconButton(icon: const Icon(Icons.keyboard_arrow_down, size: 32), onPressed: () => Navigator.pop(context)),
+                IconButton(icon: const Icon(Icons.keyboard_arrow_down, size: 30), onPressed: () => Navigator.pop(context)),
+                const Spacer(),
+                Text(showLyrics ? 'LYRICS' : 'NOW PLAYING', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1)),
                 const Spacer(),
                 IconButton(icon: const Icon(Icons.queue_music), onPressed: () => showQueue(context)),
-                IconButton(
-                  icon: Icon(showLyrics ? Icons.image : Icons.lyrics_outlined),
-                  onPressed: () => setState(() => showLyrics = !showLyrics)),
               ]),
-              Expanded(
-                child: showLyrics
-                    ? _lyricsView(p.position.inMilliseconds / 1000.0)
-                    : Center(child: cover(s.cover, MediaQuery.of(context).size.width - 80, radius: 16)),
-              ),
-              const SizedBox(height: 12),
+
+              // art or lyrics
+              Expanded(child: showLyrics ? _lyricsView(p.position.inMilliseconds / 1000.0) : Center(
+                child: ClipRRect(borderRadius: BorderRadius.circular(12),
+                  child: s.cover != null
+                    ? CachedNetworkImage(imageUrl: s.cover!, width: art, height: art, fit: BoxFit.cover)
+                    : Container(width: art, height: art, color: Colors.white10, child: const Icon(Icons.music_note, size: 90))),
+              )),
+
+              const SizedBox(height: 8),
+              // title + like
               Row(children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                  Text(s.artist, style: const TextStyle(fontSize: 15, color: Colors.white70)),
+                  Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, color: Colors.white70)),
                 ])),
-                IconButton(
-                  iconSize: 30,
-                  icon: Icon(liked ? Icons.favorite : Icons.favorite_border, color: liked ? const Color(0xFFEC4899) : Colors.white),
+                IconButton(iconSize: 30,
+                  icon: Icon(liked ? Icons.favorite : Icons.favorite_border, color: liked ? const Color(0xFF1DB954) : Colors.white),
                   onPressed: () => lib.toggleLike(s)),
-                IconButton(iconSize: 26, icon: const Icon(Icons.playlist_add), onPressed: () => showSongMenu(context, s)),
               ]),
+
+              const SizedBox(height: 6),
+              // progress
               SliderTheme(
-                data: SliderTheme.of(context).copyWith(trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 14)),
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 4, activeTrackColor: Colors.white, inactiveTrackColor: Colors.white24,
+                  thumbColor: Colors.white, thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14)),
                 child: Slider(value: posMs, max: durMs.toDouble(), onChanged: (v) => p.seek(Duration(milliseconds: v.round()))),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  Text(_fmt(p.position), style: const TextStyle(fontSize: 12, color: Colors.white54)),
-                  Text(_fmt(p.duration), style: const TextStyle(fontSize: 12, color: Colors.white54)),
-                ]),
-              ),
-              const SizedBox(height: 8),
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                IconButton(iconSize: 42, icon: const Icon(Icons.skip_previous), onPressed: p.prev),
-                const SizedBox(width: 16),
-                IconButton(iconSize: 64,
-                  icon: p.loading
-                      ? const SizedBox(width: 42, height: 42, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(p.playing ? Icons.pause_circle_filled : Icons.play_circle_fill),
-                  onPressed: p.toggle),
-                const SizedBox(width: 16),
-                IconButton(iconSize: 42, icon: const Icon(Icons.skip_next), onPressed: p.next),
+                  Text(_fmt(p.position), style: const TextStyle(fontSize: 11, color: Colors.white60)),
+                  Text(_fmt(p.duration), style: const TextStyle(fontSize: 11, color: Colors.white60)),
+                ])),
+
+              const SizedBox(height: 6),
+              // controls
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                IconButton(iconSize: 24, visualDensity: VisualDensity.compact, color: p.shuffle ? const Color(0xFF1DB954) : Colors.white70,
+                  icon: const Icon(Icons.shuffle), onPressed: p.toggleShuffle),
+                IconButton(iconSize: 38, visualDensity: VisualDensity.compact, icon: const Icon(Icons.skip_previous), onPressed: p.prev),
+                Container(width: 66, height: 66, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                  child: p.loading
+                    ? const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                    : IconButton(iconSize: 38, color: Colors.black,
+                        icon: Icon(p.playing ? Icons.pause : Icons.play_arrow), onPressed: p.toggle)),
+                IconButton(iconSize: 38, visualDensity: VisualDensity.compact, icon: const Icon(Icons.skip_next), onPressed: p.next),
+                IconButton(iconSize: 24, visualDensity: VisualDensity.compact, color: p.repeatOne ? const Color(0xFF1DB954) : Colors.white70,
+                  icon: Icon(p.repeatOne ? Icons.repeat_one : Icons.repeat), onPressed: p.toggleRepeat),
               ]),
-              if (p.error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(p.error!, style: const TextStyle(color: Colors.redAccent))),
-              const SizedBox(height: 10),
+
+              const SizedBox(height: 16),
+              // bottom bar: lyrics toggle + queue
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => showLyrics = !showLyrics),
+                  icon: Icon(showLyrics ? Icons.image_outlined : Icons.lyrics_outlined, size: 18, color: Colors.white70),
+                  label: Text(showLyrics ? 'Cover' : 'Lyrics', style: const TextStyle(color: Colors.white70)),
+                ),
+                IconButton(icon: const Icon(Icons.playlist_add, color: Colors.white70), onPressed: () => showSongMenu(context, s)),
+              ]),
+              if (p.error != null) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(p.error!, style: const TextStyle(color: Colors.redAccent))),
             ]),
           ),
         ),
-      ]),
+      ),
     );
   }
 
   Widget _lyricsView(double pos) {
-    if (lyrics == null) return const Center(child: CircularProgressIndicator());
+    if (lyrics == null) return const Center(child: CircularProgressIndicator(color: Colors.white));
     final synced = lyrics!.synced;
     if (synced != null && synced.isNotEmpty) {
       final active = _activeLine(pos);
-      // keep the active line roughly centered
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scroll.hasClients && active >= 0) {
-          final target = (active * 44.0) - 160;
+          final target = (active * 62.0) - 180;
           _scroll.animateTo(target.clamp(0, _scroll.position.maxScrollExtent),
-              duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+              duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
         }
       });
       return ListView.builder(
         controller: _scroll,
+        padding: const EdgeInsets.symmetric(vertical: 20),
         itemCount: synced.length,
         itemBuilder: (context, i) {
           final on = i == active;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: on ? 22 : 18,
-                fontWeight: on ? FontWeight.w800 : FontWeight.w500,
-                color: on ? Colors.white : Colors.white38)),
+          final passed = i < active;
+          return GestureDetector(
+            onTap: () => context.read<Player>().seek(Duration(milliseconds: (synced[i].time * 1000).round())),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text,
+                textAlign: TextAlign.left,
+                style: TextStyle(
+                  fontSize: 27, height: 1.15,
+                  fontWeight: FontWeight.w800,
+                  color: on ? Colors.white : (passed ? Colors.white54 : Colors.white38))),
+            ),
           );
         },
       );
     }
     if (lyrics!.plain != null && lyrics!.plain!.trim().isNotEmpty) {
-      return SingleChildScrollView(child: Padding(padding: const EdgeInsets.all(8),
-        child: Text(lyrics!.plain!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, height: 1.6, color: Colors.white70))));
+      return SingleChildScrollView(padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Text(lyrics!.plain!, style: const TextStyle(fontSize: 22, height: 1.5, fontWeight: FontWeight.w700, color: Colors.white)));
     }
     return const Center(child: Text('No lyrics found', style: TextStyle(color: Colors.white54)));
   }

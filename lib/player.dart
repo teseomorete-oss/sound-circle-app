@@ -189,6 +189,12 @@ class Player extends ChangeNotifier {
   void toggle() { _audio.playing ? _audio.pause() : _audio.play(); notifyListeners(); }
   void seek(Duration d) => _audio.seek(d);
 
+  bool get repeatOne => _audio.loopMode == LoopMode.one;
+  void toggleRepeat() { _audio.setLoopMode(repeatOne ? LoopMode.off : LoopMode.one); notifyListeners(); }
+
+  bool shuffle = false;
+  void toggleShuffle() { shuffle = !shuffle; if (shuffle) { _radio.shuffle(); _upNext.shuffle(); } notifyListeners(); }
+
   Future<void> next() async {
     if (_audio.hasNext) { await _audio.seekToNext(); return; }
     await _ensureLookahead();
