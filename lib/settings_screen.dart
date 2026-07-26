@@ -65,19 +65,17 @@ class SettingsScreen extends StatelessWidget {
           value: s.queueBarShrink, onChanged: (v) => s.update(() => s.queueBarShrink = v)),
         SwitchListTile(title: const Text('Show artist'), subtitle: const Text('Artist name under each title'),
           value: s.queueBarArtist, onChanged: (v) => s.update(() => s.queueBarArtist = v)),
-        ListTile(
-          title: const Text('Cover size'),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: ['S', 'M', 'L'].map((k) {
-            final on = s.queueBarSize == k;
-            return Padding(padding: const EdgeInsets.only(left: 6), child: GestureDetector(
-              onTap: () => s.update(() => s.queueBarSize = k),
-              child: Container(width: 40, height: 34, alignment: Alignment.center,
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
-                  gradient: on ? LinearGradient(colors: s.accentColors) : null,
-                  color: on ? null : const Color(0xFF23232f)),
-                child: Text(k, style: TextStyle(fontWeight: FontWeight.w700, color: on ? Colors.white : Colors.white70))),
-            ));
-          }).toList()),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Row(children: [
+            const Text('Cover size'),
+            Expanded(child: Slider(
+              value: s.queueBarSize, min: 68, max: 150, divisions: 41,
+              label: '${s.queueBarSize.round()} px',
+              onChanged: (v) => s.update(() => s.queueBarSize = v))),
+            SizedBox(width: 46, child: Text('${s.queueBarSize.round()}', textAlign: TextAlign.end,
+              style: const TextStyle(color: Colors.white54))),
+          ]),
         ),
 
         _h('Home feed'),

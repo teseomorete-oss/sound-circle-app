@@ -7,10 +7,16 @@ class Playlist {
   final String id;
   String name;
   List<Song> songs;
-  Playlist({required this.id, required this.name, List<Song>? songs}) : songs = songs ?? [];
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'songs': songs.map((s) => s.toJson()).toList()};
+  String? coverImage;   // local file path (uploaded photo)
+  bool coverGradient;   // procedurally-generated cover from the name
+  Playlist({required this.id, required this.name, List<Song>? songs, this.coverImage, this.coverGradient = false}) : songs = songs ?? [];
+  Map<String, dynamic> toJson() => {
+        'id': id, 'name': name, 'songs': songs.map((s) => s.toJson()).toList(),
+        'coverImage': coverImage, 'coverGradient': coverGradient,
+      };
   factory Playlist.fromJson(Map<String, dynamic> j) => Playlist(
-      id: j['id'], name: j['name'], songs: ((j['songs'] as List?) ?? []).map((e) => Song.fromJson(e)).toList());
+      id: j['id'], name: j['name'], songs: ((j['songs'] as List?) ?? []).map((e) => Song.fromJson(e)).toList(),
+      coverImage: j['coverImage'] as String?, coverGradient: (j['coverGradient'] as bool?) ?? false);
 }
 
 /// The user's library: likes, playlists, follows, history. Persisted locally.
@@ -121,6 +127,14 @@ class Library extends ChangeNotifier {
   void removeFromPlaylist(String id, int deezerId) {
     final p = playlists.firstWhere((p) => p.id == id, orElse: () => Playlist(id: '', name: ''));
     if (p.id.isNotEmpty) { p.songs.removeWhere((x) => x.deezerId == deezerId); _savePlaylists(); }
+  }
+  void setPlaylistCover(String id, {String? image, bool? gradient}) {
+    final p = playlists.firstWhere((p) => p.id == id, orElse: () => Playlist(id: '', name: ''));
+    if (p.id.isEmpty) return;
+    if (image != null) { p.coverImage = image; p.coverGradient = false; }
+    else if (gradient == true) { p.coverGradient = true; p.coverImage = null; }
+    else { p.coverImage = null; p.coverGradient = false; } // auto (first song)
+    _savePlaylists();
   }
   void _savePlaylists() { _save('playlists', playlists.map((e) => e.toJson()).toList()); notifyListeners(); }
 }

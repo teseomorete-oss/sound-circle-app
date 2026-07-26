@@ -48,14 +48,14 @@ class Settings extends ChangeNotifier {
   bool queueBarOpen = true;     // currently expanded (toggled by the top-bar button)
   bool queueBarShrink = true;   // contract as you scroll down
   bool queueBarArtist = true;   // show artist under the title
-  String queueBarSize = 'M';    // S / M / L cover size
+  double queueBarSize = 104;    // cover size in px (slider 68–150)
 
   // Home extras
   bool showGreeting = true;
   bool moodChips = true;
   bool quickPicksSnap = true;   // snap between 3x3 grids
 
-  double get queueCover => queueBarSize == 'S' ? 84 : queueBarSize == 'L' ? 128 : 104;
+  double get queueCover => queueBarSize;
 
   SharedPreferences? _prefs;
 
@@ -91,7 +91,7 @@ class Settings extends ChangeNotifier {
         queueBarOpen = b('queueBarOpen', queueBarOpen);
         queueBarShrink = b('queueBarShrink', queueBarShrink);
         queueBarArtist = b('queueBarArtist', queueBarArtist);
-        queueBarSize = j['queueBarSize'] ?? queueBarSize;
+        queueBarSize = (j['queueBarSize'] is num) ? (j['queueBarSize'] as num).toDouble() : queueBarSize;
         showGreeting = b('showGreeting', showGreeting);
         moodChips = b('moodChips', moodChips);
         quickPicksSnap = b('quickPicksSnap', quickPicksSnap);

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -95,6 +96,32 @@ Widget cover(String? url, double size, {double radius = 8, IconData icon = Icons
             errorWidget: (_, __, ___) => Container(width: size, height: size, color: surface, child: Icon(icon, size: size * 0.4)))
         : Container(width: size, height: size, color: surface, child: Icon(icon, size: size * 0.4)),
   );
+}
+
+/// Two deterministic colours derived from a playlist name (for generated covers).
+List<Color> gradientFor(String seed) {
+  final h = seed.hashCode;
+  final hue1 = (h % 360).toDouble();
+  final hue2 = ((h ~/ 360) % 360).toDouble();
+  return [HSLColor.fromAHSL(1, hue1, 0.6, 0.5).toColor(), HSLColor.fromAHSL(1, (hue2 + 40) % 360, 0.6, 0.4).toColor()];
+}
+
+/// Renders a playlist's cover: uploaded photo → generated gradient → first song.
+Widget playlistCover(Playlist p, double size, {double radius = 8}) {
+  if (p.coverImage != null && File(p.coverImage!).existsSync()) {
+    return ClipRRect(borderRadius: BorderRadius.circular(radius),
+      child: Image.file(File(p.coverImage!), width: size, height: size, fit: BoxFit.cover));
+  }
+  if (p.coverGradient) {
+    final g = gradientFor(p.name);
+    return Container(width: size, height: size,
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(colors: g, begin: Alignment.topLeft, end: Alignment.bottomRight)),
+      alignment: Alignment.center,
+      child: Text(p.name.isEmpty ? '♪' : p.name.substring(0, 1).toUpperCase(),
+        style: TextStyle(fontSize: size * 0.4, fontWeight: FontWeight.w900, color: Colors.white)));
+  }
+  return cover(p.songs.isNotEmpty ? p.songs.first.cover : null, size, radius: radius, icon: Icons.queue_music);
 }
 
 class SongTile extends StatelessWidget {
@@ -385,6 +412,39 @@ String fanCount(int? n) {
   return '$n';
 }
 
+/// A ranked chart row: big position number + cover + title/artist. Cleaner than
+/// a plain list for "Trending" / Top-100 charts.
+class ChartTile extends StatelessWidget {
+  final Song song; final List<Song> queue; final int index;
+  const ChartTile({super.key, required this.song, required this.queue, required this.index});
+  @override
+  Widget build(BuildContext context) {
+    final playing = context.watch<Player>().current?.deezerId == song.deezerId;
+    final accent = Theme.of(context).colorScheme.primary;
+    final rank = index + 1;
+    return InkWell(
+      onTap: () => context.read<Player>().playList(queue, index),
+      onLongPress: () => showSongMenu(context, song),
+      child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        child: Row(children: [
+          SizedBox(width: 34, child: Text('$rank', textAlign: TextAlign.center,
+            style: TextStyle(fontSize: rank < 10 ? 20 : 17, fontWeight: FontWeight.w900,
+              color: rank <= 3 ? accent : Colors.white38))),
+          const SizedBox(width: 8),
+          cover(song.cover, 48),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontWeight: FontWeight.w600, color: playing ? accent : null)),
+            Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, color: Colors.white54)),
+          ])),
+          IconButton(icon: const Icon(Icons.more_vert), onPressed: () => showSongMenu(context, song)),
+        ])),
+    );
+  }
+}
+
 /// A song card for horizontal shelves (Schnellauswahl / recommendations).
 class SongCardW extends StatelessWidget {
   final Song song; final List<Song> queue; final int index; final double width;
@@ -562,11 +622,11 @@ class _NextUpBarState extends State<NextUpBar> {
   Widget _bar(BuildContext context, Player p, Settings s, List<Song> q, double t) {
     final base = s.queueCover;
     double lerp(double a, double b) => a + (b - a) * t;
-    final cs = lerp(base, base * 0.44);
+    final cs = lerp(base, base * 0.5);
     final labelH = s.queueBarArtist ? 34.0 : 20.0;
-    final labelF = (1 - t * 2.2).clamp(0.0, 1.0);
+    final labelF = (1 - t * 3.0).clamp(0.0, 1.0);  // fade quickly & fully (no half-cut text)
     final headerF = (1 - t * 1.8).clamp(0.0, 1.0);
-    final listH = lerp(base + labelH + 8, base * 0.44 + 8);
+    final listH = lerp(base + labelH + 10, base * 0.5 + 10);
     return Container(
       decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -586,7 +646,20 @@ class _NextUpBarState extends State<NextUpBar> {
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: true,
             padding: const EdgeInsets.symmetric(horizontal: 10),
-            proxyDecorator: (child, i, anim) => Material(color: Colors.transparent, child: child),
+            // Apple-style "lift": the held cover scales up with a soft shadow.
+            proxyDecorator: (child, i, anim) => AnimatedBuilder(
+              animation: anim,
+              child: child,
+              builder: (context, ch) {
+                final v = Curves.easeOut.transform(anim.value);
+                return Transform.scale(scale: 1 + 0.10 * v,
+                  child: Material(color: Colors.transparent,
+                    child: Container(
+                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.55 * v), blurRadius: 22 * v, spreadRadius: 1)]),
+                      child: ch)));
+              },
+            ),
             itemCount: q.length,
             onReorder: (o, n) => context.read<Player>().reorderQueue(o, n),
             itemBuilder: (context, i) {
@@ -595,7 +668,8 @@ class _NextUpBarState extends State<NextUpBar> {
                 key: ValueKey('nx${sng.deezerId}_$i'),
                 padding: const EdgeInsets.symmetric(horizontal: 5),
                 child: SizedBox(width: cs,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  // fill the strip height so covers stay vertically centered when small
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
                     Stack(children: [
                       GestureDetector(onTap: () => context.read<Player>().playUpNext(i), child: cover(sng.cover, cs, radius: 10)),
                       Positioned(right: 1, top: 1, child: GestureDetector(
@@ -603,13 +677,14 @@ class _NextUpBarState extends State<NextUpBar> {
                         child: Container(decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                           padding: const EdgeInsets.all(2), child: const Icon(Icons.close, size: 13)))),
                     ]),
-                    if (labelF > 0.02) ClipRect(child: Align(heightFactor: labelF, alignment: Alignment.topCenter,
-                      child: Opacity(opacity: labelF, child: Padding(padding: const EdgeInsets.only(top: 4),
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                          Text(sng.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-                          if (s.queueBarArtist)
-                            Text(sng.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white54)),
-                        ]))))),
+                    if (labelF > 0.02) Padding(padding: const EdgeInsets.only(top: 4),
+                      child: Opacity(opacity: labelF, child: SizedBox(height: labelH * labelF,
+                        child: OverflowBox(maxHeight: labelH, alignment: Alignment.topLeft,
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                            Text(sng.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                            if (s.queueBarArtist)
+                              Text(sng.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                          ]))))),
                   ]),
                 ),
               );
@@ -629,7 +704,7 @@ class PlaylistCardW extends StatelessWidget {
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlaylistScreen(id: playlist.id))),
         child: Container(width: 140, margin: const EdgeInsets.symmetric(horizontal: 6),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            cover(playlist.songs.isNotEmpty ? playlist.songs.first.cover : null, 140, radius: 10, icon: Icons.queue_music),
+            playlistCover(playlist, 140, radius: 10),
             const SizedBox(height: 6),
             Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
             Text('${playlist.songs.length} songs', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),

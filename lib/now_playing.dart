@@ -79,6 +79,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     _lineTops = tops; _lineHeights = heights;
   }
 
+  // Seconds until the next lyric line — used to detect long instrumental gaps.
+  double _gapAhead(double pos) {
+    final synced = lyrics?.synced;
+    if (synced == null || synced.isEmpty) return 0;
+    for (final l in synced) { if (l.time > pos + 0.1) return l.time - pos; }
+    return 0;
+  }
+
   int _activeLine(double pos) {
     final synced = lyrics?.synced;
     if (synced == null) return -1;
@@ -239,7 +247,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
             _scroll.animateTo(clamped, duration: const Duration(milliseconds: 550), curve: Curves.easeOutCubic);
           }
         });
-        return ListView.builder(
+        final accent = Theme.of(context).colorScheme.primary;
+        // Bright, readable accent tint for the currently-sung line.
+        final activeColor = Color.lerp(accent, Colors.white, 0.35)!;
+        final playing = context.watch<Player>().playing;
+        final gap = _gapAhead(pos);
+        final showNotes = playing && gap > 6; // long instrumental → animated notes
+
+        final list = ListView.builder(
           controller: _scroll,
           padding: EdgeInsets.symmetric(vertical: pad),
           itemCount: synced.length,
@@ -262,7 +277,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                     style: TextStyle(
                       fontSize: 27, height: 1.2,
                       fontWeight: FontWeight.w800,
-                      color: on ? Colors.white : (passed ? Colors.white54 : Colors.white38)),
+                      color: on ? activeColor : (passed ? Colors.white54 : Colors.white38)),
                     child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
                   ),
                 ),
@@ -270,6 +285,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
             );
           },
         );
+        if (!showNotes) return list;
+        return Stack(children: [list, Center(child: BouncingNotes(color: activeColor))]);
       });
     }
     if (lyrics!.plain != null && lyrics!.plain!.trim().isNotEmpty) {
@@ -277,5 +294,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
         child: Text(lyrics!.plain!, style: const TextStyle(fontSize: 22, height: 1.5, fontWeight: FontWeight.w700, color: Colors.white)));
     }
     return const Center(child: Text('No lyrics found', style: TextStyle(color: Colors.white54)));
+  }
+}
+
+/// Three music notes that bounce in sequence — shown during long instrumental
+/// gaps in the lyrics.
+class BouncingNotes extends StatefulWidget {
+  final Color color;
+  const BouncingNotes({super.key, required this.color});
+  @override
+  State<BouncingNotes> createState() => _BouncingNotesState();
+}
+
+class _BouncingNotesState extends State<BouncingNotes> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    const icons = [Icons.music_note, Icons.audiotrack, Icons.music_note];
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) => Row(mainAxisSize: MainAxisSize.min,
+        children: List.generate(3, (i) {
+          final phase = (_c.value + i * 0.22) % 1.0;
+          final bounce = -14 * (1 - (2 * phase - 1).abs()); // up then down
+          final op = 0.5 + 0.5 * (1 - (2 * phase - 1).abs());
+          return Padding(padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Transform.translate(offset: Offset(0, bounce),
+              child: Opacity(opacity: op, child: Icon(icons[i], color: widget.color, size: 34 + i.toDouble()))));
+        })),
+    );
   }
 }

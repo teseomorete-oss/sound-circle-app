@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'main.dart';
 import 'detail.dart';
 import 'deezer.dart';
@@ -191,18 +194,181 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
                 if (settings.showTrending && trending.isNotEmpty) ...[
                   const SectionHeader('Trending now'),
-                  ...trending.take(10).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: trending, index: e.key)),
+                  ...trending.take(10).toList().asMap().entries.map((e) => ChartTile(song: e.value, queue: trending, index: e.key)),
                 ],
                 if (releases.isNotEmpty) ...[
                   const SectionHeader('New releases'),
                   CardShelf(children: releases.map((a) => AlbumCardW(album: a)).toList()),
                 ],
               ],
+
+              // Live charts — always fresh when opened
+              const SectionHeader('Charts & more'),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(children: [
+                  _ChartButton(icon: Icons.public, title: 'Top 100 worldwide', subtitle: 'Most-played songs right now',
+                    gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChartScreen()))),
+                  const SizedBox(height: 10),
+                  _ChartButton(icon: Icons.groups, title: 'Top 50 artists', subtitle: 'The biggest artists today',
+                    gradient: const [Color(0xFFEC4899), Color(0xFF7C3AED)],
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ArtistsChartScreen()))),
+                  const SizedBox(height: 10),
+                  _ChartButton(icon: Icons.fiber_new, title: 'New releases', subtitle: 'Fresh albums & singles',
+                    gradient: const [Color(0xFFF97316), Color(0xFFF43F5E)],
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReleasesScreen()))),
+                ]),
+              ),
               const SizedBox(height: 24),
             ]),
       )),
     ]);
   }
+}
+
+class _ChartButton extends StatelessWidget {
+  final IconData icon; final String title; final String subtitle; final List<Color> gradient; final VoidCallback onTap;
+  const _ChartButton({required this.icon, required this.title, required this.subtitle, required this.gradient, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: InkWell(borderRadius: BorderRadius.circular(14), onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14),
+              gradient: LinearGradient(colors: gradient, begin: Alignment.centerLeft, end: Alignment.centerRight)),
+            child: Row(children: [
+              Icon(icon, color: Colors.white, size: 28),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white)),
+                Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+              ])),
+              const Icon(Icons.chevron_right, color: Colors.white70),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// Top-100 worldwide songs — fetched fresh each time it's opened.
+class ChartScreen extends StatefulWidget {
+  const ChartScreen({super.key});
+  @override
+  State<ChartScreen> createState() => _ChartScreenState();
+}
+class _ChartScreenState extends State<ChartScreen> {
+  List<Song> songs = [];
+  bool loading = true;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final s = await Deezer.chart(limit: 100);
+    if (mounted) setState(() { songs = s; loading = false; });
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    bottomNavigationBar: const MiniPlayer(),
+    appBar: AppBar(title: const Text('Top 100 worldwide'), actions: [
+      IconButton(icon: const Icon(Icons.refresh), onPressed: () { setState(() => loading = true); _load(); }),
+    ]),
+    body: loading ? const Center(child: CircularProgressIndicator())
+      : RefreshIndicator(onRefresh: _load, child: ListView(children: [
+          if (songs.isNotEmpty) Padding(padding: const EdgeInsets.all(12),
+            child: FilledButton.icon(onPressed: () => context.read<Player>().playList(songs, 0),
+              icon: const Icon(Icons.play_arrow), label: const Text('Play all'))),
+          ...songs.asMap().entries.map((e) => ChartTile(song: e.value, queue: songs, index: e.key)),
+          const SizedBox(height: 20),
+        ])),
+  );
+}
+
+/// Top-50 artists — fetched fresh each time.
+class ArtistsChartScreen extends StatefulWidget {
+  const ArtistsChartScreen({super.key});
+  @override
+  State<ArtistsChartScreen> createState() => _ArtistsChartScreenState();
+}
+class _ArtistsChartScreenState extends State<ArtistsChartScreen> {
+  List<Artist> artists = [];
+  bool loading = true;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final a = await Deezer.chartArtists(limit: 50);
+    if (mounted) setState(() { artists = a; loading = false; });
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    bottomNavigationBar: const MiniPlayer(),
+    appBar: AppBar(title: const Text('Top 50 artists'), actions: [
+      IconButton(icon: const Icon(Icons.refresh), onPressed: () { setState(() => loading = true); _load(); }),
+    ]),
+    body: loading ? const Center(child: CircularProgressIndicator())
+      : RefreshIndicator(onRefresh: _load, child: GridView.builder(
+          padding: const EdgeInsets.all(12),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.78),
+          itemCount: artists.length,
+          itemBuilder: (context, i) => Column(children: [
+            Stack(alignment: Alignment.topLeft, children: [
+              cover(artists[i].picture, MediaQuery.of(context).size.width / 3 - 20, radius: 60, icon: Icons.person),
+              Container(margin: const EdgeInsets.all(4), padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(10)),
+                child: Text('${i + 1}', style: const TextStyle(fontWeight: FontWeight.w900))),
+            ]),
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: artists[i].id, name: artists[i].name))),
+              child: Text(artists[i].name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+          ]),
+        )),
+  );
+}
+
+/// New releases — fetched fresh each time.
+class ReleasesScreen extends StatefulWidget {
+  const ReleasesScreen({super.key});
+  @override
+  State<ReleasesScreen> createState() => _ReleasesScreenState();
+}
+class _ReleasesScreenState extends State<ReleasesScreen> {
+  List<Album> albums = [];
+  bool loading = true;
+  @override
+  void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final a = await Deezer.newReleases(limit: 50);
+    if (mounted) setState(() { albums = a; loading = false; });
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    bottomNavigationBar: const MiniPlayer(),
+    appBar: AppBar(title: const Text('New releases'), actions: [
+      IconButton(icon: const Icon(Icons.refresh), onPressed: () { setState(() => loading = true); _load(); }),
+    ]),
+    body: loading ? const Center(child: CircularProgressIndicator())
+      : RefreshIndicator(onRefresh: _load, child: GridView.builder(
+          padding: const EdgeInsets.all(12),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2, mainAxisSpacing: 14, crossAxisSpacing: 12, childAspectRatio: 0.74),
+          itemCount: albums.length,
+          itemBuilder: (context, i) {
+            final a = albums[i];
+            final w = MediaQuery.of(context).size.width / 2 - 18;
+            return GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: a.id, title: a.title))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                cover(a.cover, w, radius: 12, icon: Icons.album),
+                const SizedBox(height: 6),
+                Text(a.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                Text(a.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+              ]),
+            );
+          },
+        )),
+  );
 }
 
 class _MoodChip extends StatelessWidget {
@@ -402,7 +568,7 @@ class LibraryScreen extends StatelessWidget {
         const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('No playlists yet.', style: TextStyle(color: Colors.white54)))
       else
         ...lib.playlists.map((p) => ListTile(
-              leading: cover(p.songs.isNotEmpty ? p.songs.first.cover : null, 50, icon: Icons.queue_music),
+              leading: playlistCover(p, 50),
               title: Text(p.name),
               subtitle: Text('${p.songs.length} songs'),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlaylistScreen(id: p.id))),
@@ -486,6 +652,30 @@ class SongListScreen extends StatelessWidget {
   }
 }
 
+Future<void> _changeCover(BuildContext context, Library lib, Playlist p) async {
+  showModalBottomSheet(context: context, backgroundColor: const Color(0xFF14141f),
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (_) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(leading: const Icon(Icons.photo_library_outlined), title: const Text('Upload a photo'),
+        onTap: () async {
+          Navigator.pop(context);
+          final picker = ImagePicker();
+          final x = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1000, imageQuality: 88);
+          if (x == null) return;
+          final dir = await getApplicationDocumentsDirectory();
+          final dest = '${dir.path}/pl_${p.id}.jpg';
+          await File(x.path).copy(dest);
+          lib.setPlaylistCover(p.id, image: dest);
+        }),
+      ListTile(leading: const Icon(Icons.auto_awesome), title: const Text('Generate cover'),
+        subtitle: const Text('Colourful cover from the name'),
+        onTap: () { Navigator.pop(context); lib.setPlaylistCover(p.id, gradient: true); }),
+      ListTile(leading: const Icon(Icons.album), title: const Text('Use first song'),
+        onTap: () { Navigator.pop(context); lib.setPlaylistCover(p.id); }),
+      const SizedBox(height: 8),
+    ])));
+}
+
 class PlaylistScreen extends StatelessWidget {
   final String id;
   const PlaylistScreen({super.key, required this.id});
@@ -497,6 +687,8 @@ class PlaylistScreen extends StatelessWidget {
     return Scaffold(
       bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(title: Text(p.name), actions: [
+        IconButton(icon: const Icon(Icons.image_outlined), tooltip: 'Change cover',
+          onPressed: () => _changeCover(context, lib, p)),
         IconButton(icon: const Icon(Icons.edit), onPressed: () async {
           final name = await promptName(context, initial: p.name);
           if (name != null && name.isNotEmpty) lib.renamePlaylist(id, name);
@@ -504,6 +696,16 @@ class PlaylistScreen extends StatelessWidget {
         IconButton(icon: const Icon(Icons.delete_outline), onPressed: () { lib.deletePlaylist(id); Navigator.pop(context); }),
       ]),
       body: ListView(children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Row(children: [
+            GestureDetector(onTap: () => _changeCover(context, lib, p), child: playlistCover(p, 120, radius: 12)),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text('${p.songs.length} songs', style: const TextStyle(color: Colors.white54)),
+            ])),
+          ])),
         Padding(padding: const EdgeInsets.all(16), child: FilledButton.icon(
           onPressed: p.songs.isEmpty ? null : () => player.playList(p.songs, 0),
           icon: const Icon(Icons.play_arrow), label: const Text('Play'))),

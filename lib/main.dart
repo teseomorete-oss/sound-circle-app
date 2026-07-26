@@ -100,9 +100,12 @@ class _RootPageState extends State<RootPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
+        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        // Vertical fade that ends exactly on the page colour → no seam / black line.
         flexibleSpace: Container(decoration: BoxDecoration(gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [Color.lerp(s.bg, accent, 0.18)!, s.bg]))),
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [Color.lerp(s.bg, accent, 0.22)!, s.bg]))),
         title: Row(children: [
           Icon(Icons.graphic_eq, color: accent),
           const SizedBox(width: 8),
