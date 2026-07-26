@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'main.dart';
 import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
@@ -112,8 +113,18 @@ class _HomeScreenState extends State<HomeScreen> {
       child: loading
           ? ListView(children: const [SizedBox(height: 200), Center(child: CircularProgressIndicator())])
           : ListView(children: [
-              Padding(padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+              const NextUpBar(),
+              Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: Text(hi, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
+
+              // Mood chips (YT-Music style)
+              SizedBox(height: 40, child: ListView(
+                scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                children: [
+                  for (final m in const ['Chill', 'Energy', 'Focus', 'Workout', 'Party', 'Sad', 'Feel good'])
+                    Padding(padding: const EdgeInsets.only(right: 8), child: _MoodChip(mood: m)),
+                ],
+              )),
 
               if (settings.showQuickPicks && quickPicks.length >= 3) ...[
                 const SectionHeader('Quick picks'),
@@ -174,6 +185,24 @@ class _HomeScreenState extends State<HomeScreen> {
             ]),
     );
   }
+}
+
+class _MoodChip extends StatelessWidget {
+  final String mood;
+  const _MoodChip({required this.mood});
+  @override
+  Widget build(BuildContext context) => ActionChip(
+        label: Text(mood),
+        backgroundColor: const Color(0xFF1c1c28),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        onPressed: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          final player = context.read<Player>();
+          messenger.showSnackBar(SnackBar(content: Text('$mood mix…'), duration: const Duration(milliseconds: 900)));
+          final songs = await Deezer.search('$mood music', limit: 40);
+          if (songs.isNotEmpty) player.playList(songs, 0);
+        },
+      );
 }
 
 // ---------------- Search ----------------
@@ -275,13 +304,25 @@ class LibraryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lib = context.watch<Library>();
-    final player = context.read<Player>();
     return ListView(children: [
       const Padding(padding: EdgeInsets.fromLTRB(16, 20, 16, 4),
         child: Text('Library', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
 
+      // Liked & Downloads as auto-playlists (like YT Music)
+      _AutoPlaylistTile(
+        gradient: const [Color(0xFFEC4899), Color(0xFF7C3AED)], icon: Icons.favorite,
+        title: 'Liked Songs', subtitle: 'Auto playlist · ${lib.liked.length} songs',
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SongListScreen(kind: SongListKind.liked))),
+      ),
+      if (lib.downloads.isNotEmpty)
+        _AutoPlaylistTile(
+          gradient: const [Color(0xFF16A34A), Color(0xFF0F766E)], icon: Icons.download_done,
+          title: 'Downloaded', subtitle: 'Offline · ${lib.downloads.length} songs',
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SongListScreen(kind: SongListKind.downloads))),
+        ),
+
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Text('Playlists', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           TextButton.icon(onPressed: () async {
@@ -300,34 +341,81 @@ class LibraryScreen extends StatelessWidget {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlaylistScreen(id: p.id))),
             )),
 
-      const SectionHeader('Liked songs'),
-      if (lib.liked.isEmpty)
-        const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Songs you like show up here.', style: TextStyle(color: Colors.white54)))
-      else ...[
-        ListTile(
-          leading: const CircleAvatar(backgroundColor: Color(0xFFA855F7), child: Icon(Icons.favorite, color: Colors.white)),
-          title: const Text('Play liked songs'),
-          onTap: () => player.playList(lib.liked, 0),
-        ),
-        ...lib.liked.take(30).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: lib.liked, index: e.key)),
-      ],
-
-      if (lib.downloads.isNotEmpty) ...[
-        const SectionHeader('Downloaded'),
-        ListTile(
-          leading: const CircleAvatar(backgroundColor: Color(0xFF22C55E), child: Icon(Icons.download_done, color: Colors.white)),
-          title: Text('${lib.downloads.length} songs · offline'),
-          onTap: () => player.playList(lib.downloads, 0),
-        ),
-        ...lib.downloads.asMap().entries.map((e) => SongTile(song: e.value, queue: lib.downloads, index: e.key)),
-      ],
-
       if (lib.followed.isNotEmpty) ...[
         const SectionHeader('Following'),
         CardShelf(children: lib.followed.map((a) => ArtistCardW(artist: a)).toList()),
       ],
       const SizedBox(height: 20),
     ]);
+  }
+}
+
+class _AutoPlaylistTile extends StatelessWidget {
+  final List<Color> gradient; final IconData icon; final String title; final String subtitle; final VoidCallback onTap;
+  const _AutoPlaylistTile({required this.gradient, required this.icon, required this.title, required this.subtitle, required this.onTap});
+  @override
+  Widget build(BuildContext context) => ListTile(
+        onTap: onTap,
+        leading: Container(width: 50, height: 50,
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight)),
+          child: Icon(icon, color: Colors.white)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Row(children: [const Icon(Icons.push_pin, size: 12, color: Colors.white38), const SizedBox(width: 4), Text(subtitle)]),
+      );
+}
+
+enum SongListKind { liked, downloads }
+
+/// Liked songs / Downloads presented as a playlist (gradient header + list).
+class SongListScreen extends StatelessWidget {
+  final SongListKind kind;
+  const SongListScreen({super.key, required this.kind});
+  @override
+  Widget build(BuildContext context) {
+    final lib = context.watch<Library>();
+    final player = context.read<Player>();
+    final liked = kind == SongListKind.liked;
+    final songs = liked ? lib.liked : lib.downloads;
+    final title = liked ? 'Liked Songs' : 'Downloaded';
+    final grad = liked ? [const Color(0xFFEC4899), const Color(0xFF7C3AED)] : [const Color(0xFF16A34A), const Color(0xFF0F766E)];
+    return Scaffold(
+      bottomNavigationBar: const MiniPlayer(),
+      body: CustomScrollView(slivers: [
+        SliverAppBar(
+          expandedHeight: 230, pinned: true,
+          flexibleSpace: FlexibleSpaceBar(
+            title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+            background: Container(
+              decoration: BoxDecoration(gradient: LinearGradient(
+                begin: Alignment.topLeft, end: Alignment.bottomRight, colors: grad)),
+              child: Center(child: Icon(liked ? Icons.favorite : Icons.download_done, size: 84, color: Colors.white70)),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(children: [
+            Text('${songs.length} songs', style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w600)),
+            const Spacer(),
+            IconButton.filled(onPressed: songs.isEmpty ? null : () => player.playList(songs, 0), icon: const Icon(Icons.play_arrow)),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: songs.isEmpty ? null : () { final sh = songs.toList()..shuffle(); player.playList(sh, 0); },
+              icon: const Icon(Icons.shuffle, size: 18), label: const Text('Shuffle')),
+          ]),
+        )),
+        if (songs.isEmpty)
+          SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(40),
+            child: Center(child: Text(liked ? 'Songs you like show up here.' : 'Your offline songs show up here.',
+              style: const TextStyle(color: Colors.white38)))))
+        else
+          SliverList(delegate: SliverChildBuilderDelegate(
+            (context, i) => SongTile(song: songs[i], queue: songs, index: i),
+            childCount: songs.length)),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
+      ]),
+    );
   }
 }
 
@@ -340,6 +428,7 @@ class PlaylistScreen extends StatelessWidget {
     final player = context.read<Player>();
     final p = lib.playlists.firstWhere((x) => x.id == id, orElse: () => Playlist(id: '', name: 'Playlist'));
     return Scaffold(
+      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(title: Text(p.name), actions: [
         IconButton(icon: const Icon(Icons.edit), onPressed: () async {
           final name = await promptName(context, initial: p.name);

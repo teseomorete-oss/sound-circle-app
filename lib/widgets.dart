@@ -145,11 +145,12 @@ void showSongMenu(BuildContext context, Song song) {
       case 'playlist': _addToPlaylist(context, song); break;
       case 'radio': player.playList([song], 0); break;
       case 'download':
-        if (downloaded) { Downloads.delete(lib, song); messenger.showSnackBar(const SnackBar(content: Text('Removed download'), duration: Duration(milliseconds: 1100))); }
+        if (downloaded) { Downloads.delete(lib, song); showCoverPopout(context, cover: song.cover, message: 'Removed', icon: Icons.delete_outline); }
         else {
-          messenger.showSnackBar(const SnackBar(content: Text('Downloading…'), duration: Duration(milliseconds: 1200)));
-          Downloads.download(player, lib, song).then((ok) =>
-            messenger.showSnackBar(SnackBar(content: Text(ok ? 'Downloaded' : 'Download failed'), duration: const Duration(milliseconds: 1200))));
+          showCoverPopout(context, cover: song.cover, message: 'Downloading…', icon: Icons.download);
+          Downloads.download(player, lib, song).then((ok) {
+            if (context.mounted) showCoverPopout(context, cover: song.cover, message: ok ? 'Downloaded' : 'Failed', icon: ok ? Icons.download_done : Icons.error_outline);
+          });
         }
         break;
       case 'album': if (song.albumId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: song.albumId!, title: song.album ?? ''))); break;
@@ -319,6 +320,64 @@ class ArtistCardW extends StatelessWidget {
       );
 }
 
+/// A small dynamic tab that pops out from the right edge showing a cover +
+/// message (used for download feedback instead of a full-width snackbar).
+void showCoverPopout(BuildContext context, {String? cover, required String message, IconData icon = Icons.check_circle, Color? accent}) {
+  final overlay = Overlay.of(context);
+  final entry = OverlayEntry(builder: (ctx) => _CoverPopout(cover: cover, message: message, icon: icon, accent: accent ?? Theme.of(context).colorScheme.primary));
+  overlay.insert(entry);
+  Future.delayed(const Duration(milliseconds: 2200), () { try { entry.remove(); } catch (_) {} });
+}
+
+class _CoverPopout extends StatefulWidget {
+  final String? cover; final String message; final IconData icon; final Color accent;
+  const _CoverPopout({this.cover, required this.message, required this.icon, required this.accent});
+  @override
+  State<_CoverPopout> createState() => _CoverPopoutState();
+}
+
+class _CoverPopoutState extends State<_CoverPopout> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 340));
+  @override
+  void initState() {
+    super.initState();
+    _c.forward();
+    Future.delayed(const Duration(milliseconds: 1750), () { if (mounted) _c.reverse(); });
+  }
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final curve = CurvedAnimation(parent: _c, curve: Curves.easeOutBack, reverseCurve: Curves.easeInCubic);
+    final mq = MediaQuery.of(context);
+    return Positioned(
+      right: 0, top: mq.padding.top + 70,
+      child: SlideTransition(
+        position: Tween(begin: const Offset(1.1, 0), end: Offset.zero).animate(curve),
+        child: FadeTransition(opacity: _c,
+          child: Material(color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1c1c28),
+                borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                border: Border.all(color: widget.accent.withValues(alpha: 0.5)),
+                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(-2, 4))]),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                cover(widget.cover, 40, radius: 8),
+                const SizedBox(width: 10),
+                Icon(widget.icon, color: widget.accent, size: 20),
+                const SizedBox(width: 6),
+                Text(widget.message, style: const TextStyle(fontWeight: FontWeight.w600)),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 String fanCount(int? n) {
   if (n == null) return '';
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(n >= 10000000 ? 0 : 1)}M';
@@ -430,6 +489,72 @@ class MixCard extends StatelessWidget {
           ]),
         ),
       );
+}
+
+/// "NEXT UP" strip at the top of Home — horizontal, drag to reorder, tap to
+/// jump, X to remove. Shows only the manual queue.
+class NextUpBar extends StatefulWidget {
+  const NextUpBar({super.key});
+  @override
+  State<NextUpBar> createState() => _NextUpBarState();
+}
+
+class _NextUpBarState extends State<NextUpBar> {
+  bool hidden = false;
+  @override
+  Widget build(BuildContext context) {
+    final p = context.watch<Player>();
+    final q = p.manualQueue;
+    if (q.isEmpty || hidden) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: 8),
+      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
+          child: Row(children: [
+            const Icon(Icons.queue_music, size: 18, color: Colors.white54),
+            const SizedBox(width: 8),
+            Text('NEXT UP · ${q.length}', style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5, color: Colors.white70)),
+            const Spacer(),
+            IconButton(iconSize: 20, visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close), onPressed: () => setState(() => hidden = true)),
+          ])),
+        SizedBox(
+          height: 150,
+          child: ReorderableListView.builder(
+            scrollDirection: Axis.horizontal,
+            buildDefaultDragHandles: true,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            proxyDecorator: (child, i, anim) => Material(color: Colors.transparent, child: child),
+            itemCount: q.length,
+            onReorder: (o, n) => context.read<Player>().reorderQueue(o, n),
+            itemBuilder: (context, i) {
+              final s = q[i];
+              return Padding(
+                key: ValueKey('nx${s.deezerId}_$i'),
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                child: SizedBox(width: 104,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Stack(children: [
+                      GestureDetector(onTap: () => context.read<Player>().playUpNext(i), child: cover(s.cover, 104, radius: 10)),
+                      Positioned(right: 2, top: 2, child: GestureDetector(
+                        onTap: () => context.read<Player>().removeUpNext(i),
+                        child: Container(decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                          padding: const EdgeInsets.all(3), child: const Icon(Icons.close, size: 16)))),
+                    ]),
+                    const SizedBox(height: 4),
+                    Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                    Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ]),
+    );
+  }
 }
 
 class PlaylistCardW extends StatelessWidget {

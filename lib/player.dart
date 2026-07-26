@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -18,6 +19,7 @@ class Player extends ChangeNotifier {
   Song? current;
   bool loading = false;
   String? error;
+  bool needsDownloads = false; // last failure was likely offline → offer downloads
 
   final List<Song> _loaded = [];   // songs currently in the native playlist
   final List<Song> _upNext = [];   // manual queue (Play next / Add to queue) — SHOWN
@@ -62,6 +64,28 @@ class Player extends ChangeNotifier {
       if (j >= 0 && j < _upNext.length) { _manualIds.remove(_upNext[j].deezerId); _upNext.removeAt(j); }
     }
     notifyListeners();
+  }
+
+  /// Drag-reorder the manual queue (indices into [manualQueue]).
+  void reorderQueue(int oldIndex, int newIndex) {
+    final q = manualQueue;
+    if (oldIndex < 0 || oldIndex >= q.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    newIndex = newIndex.clamp(0, q.length - 1);
+    if (oldIndex == newIndex) return;
+    // Rebuild a single ordered manual list, then re-seat it: drop the pre-loaded
+    // ahead item back into _upNext so ordering is simple and consistent.
+    final aheadManual = _aheadManual();
+    for (final s in aheadManual) {
+      final idx = _loaded.indexOf(s);
+      if (idx >= 0) { _playlist.removeAt(idx); _loaded.removeAt(idx); }
+    }
+    final combined = [...aheadManual, ..._upNext];
+    final moved = combined.removeAt(oldIndex);
+    combined.insert(newIndex, moved);
+    _upNext..clear()..addAll(combined);
+    notifyListeners();
+    _ensureLookahead();
   }
 
   /// Jump straight to a manual-queue item.
@@ -163,7 +187,7 @@ class Player extends ChangeNotifier {
   }
 
   Future<void> _startWith(Song s) async {
-    current = s; loading = true; error = null; notifyListeners();
+    current = s; loading = true; error = null; needsDownloads = false; notifyListeners();
     try {
       final url = await _resolveUrl(s);
       if (url == null) throw 'No source';
@@ -179,8 +203,20 @@ class Player extends ChangeNotifier {
       _fillRadio();
       _ensureLookahead();
     } catch (e) {
-      loading = false; error = 'Could not play "${s.title}"'; notifyListeners();
+      loading = false;
+      final online = await _online();
+      error = online ? 'Couldn\'t play "${s.title}"' : 'No internet connection';
+      needsDownloads = !online;
+      notifyListeners();
     }
+  }
+
+  // Lightweight connectivity probe (no extra package).
+  Future<bool> _online() async {
+    try {
+      final r = await InternetAddress.lookup('one.one.one.one').timeout(const Duration(seconds: 3));
+      return r.isNotEmpty && r.first.rawAddress.isNotEmpty;
+    } catch (_) { return false; }
   }
 
   // Insert right after the current track so it plays next (background-safe).

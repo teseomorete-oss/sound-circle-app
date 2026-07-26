@@ -5,6 +5,7 @@ import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
 import 'widgets.dart';
+import 'main.dart';
 
 class ArtistScreen extends StatefulWidget {
   final int artistId;
@@ -49,8 +50,11 @@ class _ArtistScreenState extends State<ArtistScreen> {
     final following = lib.isFollowing(widget.artistId);
     final pic = artist?.picture;
     final accent = Theme.of(context).colorScheme.primary;
+    final bg = Theme.of(context).scaffoldBackgroundColor;
     return Scaffold(
-      body: CustomScrollView(slivers: [
+      bottomNavigationBar: const MiniPlayer(), // keep the playing bar visible here too
+      body: Stack(children: [
+        CustomScrollView(slivers: [
         SliverAppBar(
           expandedHeight: 320,
           pinned: true,
@@ -64,7 +68,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
                 stops: const [0.0, 0.45, 0.75, 1.0],
                 colors: [Colors.transparent, Colors.black.withValues(alpha: 0.15),
-                  Colors.black.withValues(alpha: 0.65), Theme.of(context).scaffoldBackgroundColor]))),
+                  Colors.black.withValues(alpha: 0.65), bg]))),
             ]),
           ),
         ),
@@ -134,6 +138,14 @@ class _ArtistScreenState extends State<ArtistScreen> {
           )),
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
+        ]),
+        // Persistent top fade so the collapsed header/status bar stays readable while scrolling.
+        Positioned(top: 0, left: 0, right: 0, child: IgnorePointer(child: Container(
+          height: 130,
+          decoration: BoxDecoration(gradient: LinearGradient(
+            begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [bg.withValues(alpha: 0.55), Colors.transparent])),
+        ))),
       ]),
     );
   }
@@ -179,6 +191,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
   Widget build(BuildContext context) {
     final cv = tracks.isNotEmpty ? tracks.first.cover : null;
     return Scaffold(
+      bottomNavigationBar: const MiniPlayer(),
       appBar: AppBar(title: Text(widget.title)),
       body: loading
           ? const Center(child: CircularProgressIndicator())

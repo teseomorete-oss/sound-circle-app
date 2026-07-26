@@ -135,18 +135,35 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final s = p.current;
     if (s == null) return const SizedBox.shrink();
     _updateTint(s.cover);
+
+    // Offline / error banner instead of the normal bar.
+    if (p.error != null && p.needsDownloads) {
+      return Material(color: const Color(0xFF2a1420),
+        child: Padding(padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+          child: Row(children: [
+            const Icon(Icons.wifi_off, color: Colors.redAccent, size: 20),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('No internet connection', style: TextStyle(fontWeight: FontWeight.w600))),
+            TextButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SongListScreen(kind: SongListKind.downloads))),
+              icon: const Icon(Icons.download_done, size: 18), label: const Text('Downloads')),
+          ]),
+        ),
+      );
+    }
+
     return Material(
       color: const Color(0xFF101019),
       child: InkWell(
         onTap: () => Navigator.of(context).push(slideUpRoute(const NowPlayingScreen())),
         child: Container(
           height: 62,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(gradient: _tint != null
               ? LinearGradient(colors: [_tint!.withValues(alpha: 0.35), Colors.transparent], stops: const [0, 0.6])
               : null),
           child: Row(children: [
-            cover(s.cover, 46, radius: 6),
+            Hero(tag: 'npCover', child: cover(s.cover, 46, radius: 6)),
             const SizedBox(width: 12),
             Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
               context.watch<Settings>().scrollingTitles
@@ -154,11 +171,12 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   : Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
               Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white60)),
             ])),
+            IconButton(visualDensity: VisualDensity.compact, icon: const Icon(Icons.skip_previous, size: 26), onPressed: p.prev),
             if (p.loading)
-              const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+              const Padding(padding: EdgeInsets.all(10), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
             else
-              IconButton(icon: Icon(p.playing ? Icons.pause : Icons.play_arrow, size: 30), onPressed: p.toggle),
-            IconButton(icon: const Icon(Icons.skip_next, size: 28), onPressed: p.next),
+              IconButton(visualDensity: VisualDensity.compact, icon: Icon(p.playing ? Icons.pause : Icons.play_arrow, size: 30), onPressed: p.toggle),
+            IconButton(visualDensity: VisualDensity.compact, icon: const Icon(Icons.skip_next, size: 26), onPressed: p.next),
           ]),
         ),
       ),

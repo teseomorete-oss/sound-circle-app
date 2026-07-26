@@ -39,15 +39,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   }
 
   void _toggleDownload(Song s, Library lib) {
-    final messenger = ScaffoldMessenger.of(context);
     final player = context.read<Player>();
     if (lib.isDownloaded(s.deezerId)) {
       Downloads.delete(lib, s);
-      messenger.showSnackBar(const SnackBar(content: Text('Removed download'), duration: Duration(milliseconds: 1100)));
+      showCoverPopout(context, cover: s.cover, message: 'Removed', icon: Icons.delete_outline);
     } else {
-      messenger.showSnackBar(const SnackBar(content: Text('Downloading…'), duration: Duration(milliseconds: 1200)));
-      Downloads.download(player, lib, s).then((ok) => messenger.showSnackBar(
-        SnackBar(content: Text(ok ? 'Downloaded' : 'Download failed'), duration: const Duration(milliseconds: 1200))));
+      showCoverPopout(context, cover: s.cover, message: 'Downloading…', icon: Icons.download);
+      Downloads.download(player, lib, s).then((ok) {
+        if (mounted) showCoverPopout(context, cover: s.cover, message: ok ? 'Downloaded' : 'Failed', icon: ok ? Icons.download_done : Icons.error_outline);
+      });
     }
   }
 
@@ -108,10 +108,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
 
               // art or lyrics
               Expanded(child: showLyrics ? _lyricsView(p.position.inMilliseconds / 1000.0) : Center(
-                child: ClipRRect(borderRadius: BorderRadius.circular(12),
-                  child: s.cover != null
-                    ? CachedNetworkImage(imageUrl: s.cover!, width: art, height: art, fit: BoxFit.cover)
-                    : Container(width: art, height: art, color: Colors.white10, child: const Icon(Icons.music_note, size: 90))),
+                child: Hero(tag: 'npCover',
+                  child: ClipRRect(borderRadius: BorderRadius.circular(12),
+                    child: s.cover != null
+                      ? CachedNetworkImage(imageUrl: s.cover!, width: art, height: art, fit: BoxFit.cover)
+                      : Container(width: art, height: art, color: Colors.white10, child: const Icon(Icons.music_note, size: 90))),
+                ),
               )),
 
               const SizedBox(height: 8),
