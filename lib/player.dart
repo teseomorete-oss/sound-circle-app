@@ -258,10 +258,18 @@ class Player extends ChangeNotifier {
     } catch (_) { return false; }
   }
 
+  // Is this song already coming up (pre-loaded ahead or in the manual queue)?
+  bool _alreadyUpcoming(Song s) {
+    final ci = _audio.currentIndex ?? -1;
+    final ahead = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.sublist(ci + 1) : const <Song>[];
+    return ahead.any((x) => x.deezerId == s.deezerId) || _upNext.any((x) => x.deezerId == s.deezerId);
+  }
+
   // Insert right after the current track so it plays next (background-safe).
   Future<void> playNext(Song s) async {
     final ci = _audio.currentIndex;
     if (ci == null) { await _startWith(s); return; }
+    if (_alreadyUpcoming(s)) { _manualIds.add(s.deezerId); notifyListeners(); return; } // don't duplicate
     final url = await _resolveUrl(s);
     if (url == null) return;
     await _playlist.insert(ci + 1, _src(s, url));
@@ -270,7 +278,10 @@ class Player extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addToQueue(Song s) { _upNext.add(s); _manualIds.add(s.deezerId); notifyListeners(); _ensureLookahead(); }
+  void addToQueue(Song s) {
+    if (_alreadyUpcoming(s)) { _manualIds.add(s.deezerId); notifyListeners(); return; } // already queued/next
+    _upNext.add(s); _manualIds.add(s.deezerId); notifyListeners(); _ensureLookahead();
+  }
   void removeFromQueue(int i) { if (i >= 0 && i < _upNext.length) { _manualIds.remove(_upNext[i].deezerId); _upNext.removeAt(i); notifyListeners(); } }
 
   void toggle() { _audio.playing ? _audio.pause() : _audio.play(); notifyListeners(); }

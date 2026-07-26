@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -278,7 +279,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                       fontSize: 27, height: 1.2,
                       fontWeight: FontWeight.w800,
                       color: on ? activeColor : (passed ? Colors.white54 : Colors.white38)),
-                    child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
+                    child: Text(synced[i].text.isEmpty ? (showNotes ? '' : '♪') : synced[i].text, textAlign: TextAlign.left),
                   ),
                 ),
               ),
@@ -297,8 +298,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   }
 }
 
-/// Three music notes that bounce in sequence — shown during long instrumental
-/// gaps in the lyrics.
+/// Music notes that bob up and down on a sine wave (staggered), gently swaying —
+/// shown during long instrumental gaps in the lyrics.
 class BouncingNotes extends StatefulWidget {
   final Color color;
   const BouncingNotes({super.key, required this.color});
@@ -307,22 +308,28 @@ class BouncingNotes extends StatefulWidget {
 }
 
 class _BouncingNotesState extends State<BouncingNotes> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
+  static const _icons = [Icons.music_note, Icons.audiotrack, Icons.music_note];
+  static const _sizes = [30.0, 42.0, 30.0];
   @override
   void dispose() { _c.dispose(); super.dispose(); }
   @override
   Widget build(BuildContext context) {
-    const icons = [Icons.music_note, Icons.audiotrack, Icons.music_note];
     return AnimatedBuilder(
       animation: _c,
-      builder: (context, _) => Row(mainAxisSize: MainAxisSize.min,
+      builder: (context, _) => Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center,
         children: List.generate(3, (i) {
-          final phase = (_c.value + i * 0.22) % 1.0;
-          final bounce = -14 * (1 - (2 * phase - 1).abs()); // up then down
-          final op = 0.5 + 0.5 * (1 - (2 * phase - 1).abs());
-          return Padding(padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Transform.translate(offset: Offset(0, bounce),
-              child: Opacity(opacity: op, child: Icon(icons[i], color: widget.color, size: 34 + i.toDouble()))));
+          final phase = _c.value * 2 * math.pi + i * (2 * math.pi / 3);
+          final dy = -18 * (0.5 + 0.5 * math.sin(phase));      // 0 … -18 px
+          final sway = 3 * math.sin(phase * 0.5);              // gentle tilt
+          final scale = 0.85 + 0.25 * (0.5 + 0.5 * math.sin(phase));
+          final op = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(phase));
+          return Padding(padding: const EdgeInsets.symmetric(horizontal: 7),
+            child: Transform.translate(offset: Offset(0, dy),
+              child: Transform.rotate(angle: sway * math.pi / 180,
+                child: Transform.scale(scale: scale,
+                  child: Opacity(opacity: op.clamp(0.0, 1.0),
+                    child: Icon(_icons[i], color: widget.color, size: _sizes[i]))))));
         })),
     );
   }

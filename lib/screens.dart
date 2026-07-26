@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'main.dart';
 import 'detail.dart';
+import 'auth.dart';
 import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
@@ -120,7 +121,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final settings = context.watch<Settings>();
     final lib = context.watch<Library>();
-    final hi = '${greeting()}${settings.displayName.isNotEmpty ? ', ${settings.displayName}' : ''}';
+    final who = context.watch<Auth>().name ?? (settings.displayName.isNotEmpty ? settings.displayName : '');
+    final hi = '${greeting()}${who.isNotEmpty ? ', ${who.split(' ').first}' : ''}';
     final mixes = _mixes(lib);
     return Column(children: [
       const SizedBox(height: 4),
@@ -206,9 +208,9 @@ class _HomeScreenState extends State<HomeScreen> {
               const SectionHeader('Charts & more'),
               Padding(padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Column(children: [
-                  _ChartButton(icon: Icons.public, title: 'Top 100 worldwide', subtitle: 'Most-played songs right now',
+                  _ChartButton(icon: Icons.leaderboard, title: 'Billboard Hot 100', subtitle: 'The official U.S. weekly chart',
                     gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChartScreen()))),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillboardScreen()))),
                   const SizedBox(height: 10),
                   _ChartButton(icon: Icons.groups, title: 'Top 50 artists', subtitle: 'The biggest artists today',
                     gradient: const [Color(0xFFEC4899), Color(0xFF7C3AED)],
@@ -249,6 +251,62 @@ class _ChartButton extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// Billboard Hot 100 — fetched fresh each open; each entry resolved to a
+/// playable track via Deezer in the background.
+class BillboardScreen extends StatefulWidget {
+  const BillboardScreen({super.key});
+  @override
+  State<BillboardScreen> createState() => _BillboardScreenState();
+}
+class _BillboardScreenState extends State<BillboardScreen> {
+  List<Song> songs = [];
+  String? date;
+  bool loading = true;
+  int resolved = 0, total = 0;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    setState(() { loading = true; songs = []; resolved = 0; });
+    final (d, entries) = await Billboard.hot100();
+    if (!mounted) return;
+    date = d; total = entries.length;
+    final out = <Song>[];
+    // resolve in chunks to keep it fast but not hammer the API
+    for (var i = 0; i < entries.length; i += 8) {
+      final chunk = entries.sublist(i, (i + 8).clamp(0, entries.length));
+      final results = await Future.wait(chunk.map((e) => Deezer.searchOne('${e.song} ${e.artist}')));
+      for (final s in results) { if (s != null) out.add(s); }
+      if (!mounted) return;
+      setState(() { resolved = (i + 8).clamp(0, entries.length); songs = List.of(out); });
+    }
+    if (mounted) setState(() { loading = false; });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    bottomNavigationBar: const MiniPlayer(),
+    appBar: AppBar(title: const Text('Billboard Hot 100'), actions: [
+      IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+    ]),
+    body: (loading && songs.isEmpty)
+      ? const Center(child: CircularProgressIndicator())
+      : ListView(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(children: [
+              if (date != null) Expanded(child: Text('Week of $date', style: const TextStyle(color: Colors.white54))),
+              if (loading) Text('Loading $resolved/$total…', style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            ])),
+          Padding(padding: const EdgeInsets.all(12),
+            child: FilledButton.icon(onPressed: songs.isEmpty ? null : () => context.read<Player>().playList(songs, 0),
+              icon: const Icon(Icons.play_arrow), label: const Text('Play all'))),
+          ...songs.asMap().entries.map((e) => ChartTile(song: e.value, queue: songs, index: e.key)),
+          const SizedBox(height: 20),
+        ]),
+  );
 }
 
 /// Top-100 worldwide songs — fetched fresh each time it's opened.

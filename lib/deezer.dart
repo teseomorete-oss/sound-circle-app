@@ -101,6 +101,7 @@ class Deezer {
 
   static Future<List<Song>> chart({int limit = 40}) => _tracks('/chart/0/tracks?limit=$limit');
   static Future<List<Song>> search(String q, {int limit = 40}) => _tracks('/search?q=${Uri.encodeComponent(q)}&limit=$limit');
+  static Future<Song?> searchOne(String q) async { final r = await search(q, limit: 1); return r.isEmpty ? null : r.first; }
   static Future<List<Song>> artistRadio(int artistId, {int limit = 25}) => _tracks('/artist/$artistId/radio?limit=$limit');
   static Future<List<Song>> artistTop(int artistId, {int limit = 25}) => _tracks('/artist/$artistId/top?limit=$limit');
 
@@ -170,6 +171,32 @@ class Deezer {
       final data = ((await _get('/editorial/0/releases?limit=$limit'))['data'] as List?) ?? [];
       return data.map((e) => Album.fromDeezer(e as Map<String, dynamic>)).toList();
     } catch (_) { return []; }
+  }
+}
+
+class BillboardEntry {
+  final int rank; final String song; final String artist; final int? lastWeek; final int? peak; final int? weeks;
+  BillboardEntry({required this.rank, required this.song, required this.artist, this.lastWeek, this.peak, this.weeks});
+}
+
+/// Billboard Hot 100 via a free, auto-updating public mirror of the weekly chart.
+class Billboard {
+  static Future<(String?, List<BillboardEntry>)> hot100() async {
+    try {
+      final r = await http.get(Uri.parse('https://raw.githubusercontent.com/mhollingshead/billboard-hot-100/main/recent.json'));
+      final j = jsonDecode(r.body) as Map<String, dynamic>;
+      final data = (j['data'] as List?) ?? [];
+      final out = <BillboardEntry>[];
+      for (var i = 0; i < data.length; i++) {
+        final e = data[i] as Map<String, dynamic>;
+        out.add(BillboardEntry(
+          rank: (e['this_week'] as int?) ?? i + 1,
+          song: (e['song'] ?? '') as String,
+          artist: (e['artist'] ?? '') as String,
+          lastWeek: e['last_week'] as int?, peak: e['peak_position'] as int?, weeks: e['weeks_on_chart'] as int?));
+      }
+      return (j['date'] as String?, out);
+    } catch (_) { return (null, <BillboardEntry>[]); }
   }
 }
 

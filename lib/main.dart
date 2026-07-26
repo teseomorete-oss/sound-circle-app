@@ -6,6 +6,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'player.dart';
 import 'store.dart';
 import 'settings.dart';
+import 'auth.dart';
+import 'login_screen.dart';
 import 'screens.dart';
 import 'now_playing.dart';
 import 'settings_screen.dart';
@@ -20,7 +22,8 @@ Future<void> main() async {
   );
   final settings = Settings();
   final library = Library();
-  await Future.wait([settings.init(), library.init()]);
+  final auth = Auth();
+  await Future.wait([settings.init(), library.init(), auth.init()]);
   final player = Player()..autoplay = settings.autoplay;
   player.onPlayed = library.addHistory;
   player.localPath = library.downloadPath; // play offline files when available
@@ -45,6 +48,7 @@ Future<void> main() async {
       ChangeNotifierProvider.value(value: settings),
       ChangeNotifierProvider.value(value: library),
       ChangeNotifierProvider.value(value: player),
+      ChangeNotifierProvider.value(value: auth),
     ],
     child: const SoundCircleApp(),
   ));
@@ -73,8 +77,18 @@ class SoundCircleApp extends StatelessWidget {
         sliderTheme: SliderThemeData(activeTrackColor: s.accentColors[0], thumbColor: s.accentColors[0]),
         fontFamily: 'Roboto',
       ),
-      home: const RootPage(),
+      home: const _Gate(),
     );
+  }
+}
+
+/// Shows the login screen until the user signs in or continues as a guest.
+class _Gate extends StatelessWidget {
+  const _Gate();
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<Auth>();
+    return auth.ready ? const RootPage() : const LoginScreen();
   }
 }
 

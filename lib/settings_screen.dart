@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'settings.dart';
 import 'store.dart';
 import 'player.dart';
+import 'auth.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -11,9 +12,23 @@ class SettingsScreen extends StatelessWidget {
     final s = context.watch<Settings>();
     final lib = context.read<Library>();
     final player = context.read<Player>();
+    final auth = context.watch<Auth>();
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(padding: const EdgeInsets.only(bottom: 30), children: [
+        _h('Account'),
+        ListTile(
+          leading: CircleAvatar(backgroundColor: s.accentColors[0],
+            child: Text((auth.name?.isNotEmpty == true ? auth.name![0] : 'G').toUpperCase(),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+          title: Text(auth.name ?? 'Guest'),
+          subtitle: Text(auth.email ?? 'Not signed in'),
+          trailing: auth.signedIn
+            ? TextButton.icon(icon: const Icon(Icons.logout, size: 18), label: const Text('Log out'),
+                onPressed: () => auth.logOut())
+            : FilledButton(onPressed: () => auth.logOut(), child: const Text('Sign in')),
+        ),
+
         _h('Profile'),
         ListTile(
           title: const Text('Your name'),
