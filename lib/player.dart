@@ -20,8 +20,10 @@ class Player extends ChangeNotifier {
   String? error;
 
   final List<Song> _loaded = [];   // songs currently in the native playlist
-  final List<Song> _upNext = [];   // manual queue (Play next / Add to queue)
+  final List<Song> _upNext = [];   // manual queue (Play next / Add to queue) — SHOWN
+  final List<Song> _context = [];  // rest of the album/playlist being played — hidden
   final List<Song> _radio = [];    // hidden autoplay buffer
+  final Set<int> _manualIds = {};  // ids the user explicitly queued (never played yet)
   bool autoplay = true;
 
   Duration position = Duration.zero;
@@ -34,38 +36,42 @@ class Player extends ChangeNotifier {
   AudioPlayer get audio => _audio;
   bool get playing => _audio.playing;
 
-  /// The manually-queued songs coming up (Play next / Add to queue), including
-  /// the one already pre-loaded after the current track.
-  List<Song> get upNext {
+  /// The songs the user manually queued (Play next / Add to queue) that haven't
+  /// played yet — including one that may already be pre-loaded after the current
+  /// track. The hidden autoplay radio is deliberately NOT included here.
+  List<Song> _aheadManual() {
     final ci = _audio.currentIndex ?? -1;
-    final ahead = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.sublist(ci + 1) : <Song>[];
-    return [...ahead, ..._upNext];
+    if (ci < 0 || _loaded.length <= ci + 1) return [];
+    return _loaded.sublist(ci + 1).where((s) => _manualIds.contains(s.deezerId)).toList();
   }
+
+  List<Song> get manualQueue => [..._aheadManual(), ..._upNext];
+  bool get hasManualQueue => manualQueue.isNotEmpty;
   List<Song> get radioNext => List.unmodifiable(_radio);
 
-  /// Remove an item from the visible up-next list (by its position in [upNext]).
+  /// Remove an item from the visible manual queue (by its position in [manualQueue]).
   void removeUpNext(int i) {
-    final ci = _audio.currentIndex ?? -1;
-    final aheadCount = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.length - ci - 1 : 0;
-    if (i < aheadCount) {
-      final idx = ci + 1 + i;
-      _playlist.removeAt(idx);
-      _loaded.removeAt(idx);
+    final aheadManual = _aheadManual();
+    if (i < aheadManual.length) {
+      final s = aheadManual[i];
+      final idx = _loaded.indexOf(s);
+      if (idx >= 0) { _playlist.removeAt(idx); _loaded.removeAt(idx); }
+      _manualIds.remove(s.deezerId);
     } else {
-      final j = i - aheadCount;
-      if (j >= 0 && j < _upNext.length) _upNext.removeAt(j);
+      final j = i - aheadManual.length;
+      if (j >= 0 && j < _upNext.length) { _manualIds.remove(_upNext[j].deezerId); _upNext.removeAt(j); }
     }
     notifyListeners();
   }
 
-  /// Jump straight to an up-next item.
+  /// Jump straight to a manual-queue item.
   Future<void> playUpNext(int i) async {
-    final ci = _audio.currentIndex ?? -1;
-    final aheadCount = (ci >= 0 && _loaded.length > ci + 1) ? _loaded.length - ci - 1 : 0;
-    if (i < aheadCount) {
-      await _audio.seek(Duration.zero, index: ci + 1 + i);
+    final aheadManual = _aheadManual();
+    if (i < aheadManual.length) {
+      final idx = _loaded.indexOf(aheadManual[i]);
+      if (idx >= 0) await _audio.seek(Duration.zero, index: idx);
     } else {
-      final j = i - aheadCount;
+      final j = i - aheadManual.length;
       if (j >= 0 && j < _upNext.length) {
         final s = _upNext.removeAt(j);
         await playNext(s);
@@ -88,6 +94,7 @@ class Player extends ChangeNotifier {
     _audio.currentIndexStream.listen((i) {
       if (i == null || i >= _loaded.length) return;
       final s = _loaded[i];
+      _manualIds.remove(s.deezerId); // it's now playing, no longer "up next"
       if (s.deezerId != current?.deezerId) {
         current = s; error = null; loading = false;
         onPlayed?.call(s);
@@ -146,8 +153,12 @@ class Player extends ChangeNotifier {
       ));
 
   Future<void> playList(List<Song> songs, int index) async {
-    _upNext..clear()..addAll(songs.sublist(index + 1));
+    // Starting a fresh context wipes the old manual queue and radio. The rest of
+    // this list plays automatically but is kept hidden from the manual queue.
+    _upNext.clear();
     _radio.clear();
+    _manualIds.clear();
+    _context..clear()..addAll(songs.sublist(index + 1));
     await _startWith(songs[index]);
   }
 
@@ -180,11 +191,12 @@ class Player extends ChangeNotifier {
     if (url == null) return;
     await _playlist.insert(ci + 1, _src(s, url));
     _loaded.insert(ci + 1, s);
+    _manualIds.add(s.deezerId);
     notifyListeners();
   }
 
-  void addToQueue(Song s) { _upNext.add(s); notifyListeners(); _ensureLookahead(); }
-  void removeFromQueue(int i) { if (i >= 0 && i < _upNext.length) { _upNext.removeAt(i); notifyListeners(); } }
+  void addToQueue(Song s) { _upNext.add(s); _manualIds.add(s.deezerId); notifyListeners(); _ensureLookahead(); }
+  void removeFromQueue(int i) { if (i >= 0 && i < _upNext.length) { _manualIds.remove(_upNext[i].deezerId); _upNext.removeAt(i); notifyListeners(); } }
 
   void toggle() { _audio.playing ? _audio.pause() : _audio.play(); notifyListeners(); }
   void seek(Duration d) => _audio.seek(d);
@@ -217,7 +229,8 @@ class Player extends ChangeNotifier {
     _looking = true;
     try {
       Song? nxt;
-      if (_upNext.isNotEmpty) { nxt = _upNext.removeAt(0); notifyListeners(); }
+      if (_upNext.isNotEmpty) { nxt = _upNext.removeAt(0); notifyListeners(); } // manual queue first
+      else if (_context.isNotEmpty) { nxt = _context.removeAt(0); }             // then album/playlist rest
       else { if (_radio.isEmpty) await _fillRadio(); if (_radio.isNotEmpty) nxt = _radio.removeAt(0); }
       if (nxt != null) {
         final url = await _resolveUrl(nxt);
@@ -229,7 +242,7 @@ class Player extends ChangeNotifier {
   Future<void> _fillRadio() async {
     if (!autoplay || current?.artistId == null || _radio.length >= 3) return;
     final songs = await Deezer.artistRadio(current!.artistId!);
-    final seen = {..._loaded.map((e) => e.deezerId), ..._upNext.map((e) => e.deezerId), ..._radio.map((e) => e.deezerId)};
+    final seen = {..._loaded.map((e) => e.deezerId), ..._upNext.map((e) => e.deezerId), ..._context.map((e) => e.deezerId), ..._radio.map((e) => e.deezerId)};
     for (final s in songs) { if (seen.add(s.deezerId)) _radio.add(s); }
   }
 

@@ -27,6 +27,22 @@ class Settings extends ChangeNotifier {
   List<String> menuBig = ['playNext', 'like', 'playlist'];
   List<String> menuOptions = ['queue', 'radio', 'download', 'album', 'artist', 'hide', 'block'];
 
+  // Home feed sections
+  bool showQuickPicks = true;   // 3-row cover grid (YT-Music "Kurzauswahl")
+  bool showQuickPlay = true;    // 4-song scrollable row ("Schnellauswahl")
+  bool showMixes = true;        // personal mixes / radios
+  bool showDiscover = true;     // charts, top artists, new releases
+  bool showPlaylistsHome = true;
+  bool showDownloadsHome = true;
+
+  // Now playing / player
+  bool scrollingTitles = true;  // marquee long titles
+  bool bigPlayerArt = true;
+
+  // Queue sheet
+  bool queueExpands = true;     // drag to contract/expand vs fixed height
+  bool queueShowTitles = true;  // show song titles (vs compact art-only)
+
   SharedPreferences? _prefs;
 
   List<Color> get accentColors => accents[accent] ?? accents['purple']!;
@@ -38,14 +54,25 @@ class Settings extends ChangeNotifier {
     if (raw != null) {
       try {
         final j = jsonDecode(raw) as Map<String, dynamic>;
+        bool b(String k, bool d) => j[k] is bool ? j[k] as bool : d;
         accent = j['accent'] ?? accent;
-        amoled = j['amoled'] ?? amoled;
-        autoplay = j['autoplay'] ?? autoplay;
-        dynamicTheme = j['dynamicTheme'] ?? dynamicTheme;
-        showTrending = j['showTrending'] ?? showTrending;
+        amoled = b('amoled', amoled);
+        autoplay = b('autoplay', autoplay);
+        dynamicTheme = b('dynamicTheme', dynamicTheme);
+        showTrending = b('showTrending', showTrending);
         displayName = j['displayName'] ?? displayName;
         menuBig = ((j['menuBig'] as List?)?.cast<String>()) ?? menuBig;
         menuOptions = ((j['menuOptions'] as List?)?.cast<String>()) ?? menuOptions;
+        showQuickPicks = b('showQuickPicks', showQuickPicks);
+        showQuickPlay = b('showQuickPlay', showQuickPlay);
+        showMixes = b('showMixes', showMixes);
+        showDiscover = b('showDiscover', showDiscover);
+        showPlaylistsHome = b('showPlaylistsHome', showPlaylistsHome);
+        showDownloadsHome = b('showDownloadsHome', showDownloadsHome);
+        scrollingTitles = b('scrollingTitles', scrollingTitles);
+        bigPlayerArt = b('bigPlayerArt', bigPlayerArt);
+        queueExpands = b('queueExpands', queueExpands);
+        queueShowTitles = b('queueShowTitles', queueShowTitles);
       } catch (_) {}
     }
     notifyListeners();
@@ -55,6 +82,10 @@ class Settings extends ChangeNotifier {
     _prefs?.setString('settings', jsonEncode({
       'accent': accent, 'amoled': amoled, 'autoplay': autoplay, 'dynamicTheme': dynamicTheme,
       'showTrending': showTrending, 'displayName': displayName, 'menuBig': menuBig, 'menuOptions': menuOptions,
+      'showQuickPicks': showQuickPicks, 'showQuickPlay': showQuickPlay, 'showMixes': showMixes,
+      'showDiscover': showDiscover, 'showPlaylistsHome': showPlaylistsHome, 'showDownloadsHome': showDownloadsHome,
+      'scrollingTitles': scrollingTitles, 'bigPlayerArt': bigPlayerArt,
+      'queueExpands': queueExpands, 'queueShowTitles': queueShowTitles,
     }));
     notifyListeners();
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'deezer.dart';
@@ -25,6 +26,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Album> releases = [];
   List<Artist> topArtists = [];
   List<Song> becausePlayed = [];
+  List<Song> quickPicks = [];
+  List<Song> recommended = [];
   bool loading = true;
 
   @override
@@ -38,18 +41,64 @@ class _HomeScreenState extends State<HomeScreen> {
       Deezer.newReleases(),
       Future.wait(names.take(10).map((n) => Deezer.searchArtists(n, limit: 1).then((r) => r.isNotEmpty ? r.first : null))),
       names.isNotEmpty
-          ? Deezer.searchArtists(names.first, limit: 1).then((r) => r.isNotEmpty ? Deezer.artistRadio(r.first.id, limit: 15) : <Song>[])
+          ? Deezer.searchArtists(names.first, limit: 1).then((r) => r.isNotEmpty ? Deezer.artistRadio(r.first.id, limit: 20) : <Song>[])
           : Future.value(<Song>[]),
+      // recommendations: blend radios from the top few artists for variety
+      Future.wait(names.take(3).map((n) => Deezer.searchArtists(n, limit: 1)
+          .then((r) => r.isNotEmpty ? Deezer.artistRadio(r.first.id, limit: 12) : <Song>[]))),
     ]);
     if (!mounted) return;
+    final chart = results[0] as List<Song>;
+    final recRaw = (results[4] as List).cast<List<Song>>();
+    // interleave the per-artist radios so the feed feels varied, then top up with chart
+    final blended = <Song>[];
+    final seen = <int>{};
+    for (var i = 0; i < 12; i++) {
+      for (final list in recRaw) { if (i < list.length && seen.add(list[i].deezerId)) blended.add(list[i]); }
+    }
+    for (final s in chart) { if (seen.add(s.deezerId)) blended.add(s); }
+
+    // quick picks = recent + liked + trending, de-duplicated and shuffled a little
+    final qp = <Song>[]; final qpSeen = <int>{};
+    for (final s in [...lib.history.take(8), ...lib.liked.take(8), ...chart.take(12)]) {
+      if (qpSeen.add(s.deezerId)) qp.add(s);
+    }
+
     setState(() {
-      trending = results[0] as List<Song>;
+      trending = chart;
       releases = results[1] as List<Album>;
       topArtists = (results[2] as List).whereType<Artist>().toList();
       if (topArtists.isEmpty) { Deezer.chartArtists().then((a) => mounted ? setState(() => topArtists = a) : null); }
       becausePlayed = results[3] as List<Song>;
+      recommended = blended.isNotEmpty ? blended : chart;
+      quickPicks = qp.take(12).toList();
       loading = false;
     });
+  }
+
+  List<Widget> _mixes(Library lib) {
+    final mixes = <Widget>[];
+    final grads = [
+      [const Color(0xFF7C3AED), const Color(0xFFEC4899)],
+      [const Color(0xFF2563EB), const Color(0xFF06B6D4)],
+      [const Color(0xFFF97316), const Color(0xFFF43F5E)],
+      [const Color(0xFF16A34A), const Color(0xFF14B8A6)],
+      [const Color(0xFFDB2777), const Color(0xFF7C3AED)],
+    ];
+    var gi = 0;
+    if (lib.liked.length >= 3) {
+      mixes.add(MixCard(title: 'On Repeat', subtitle: 'Your liked songs', gradient: grads[gi++ % grads.length],
+        cover: lib.liked.first.cover, resolve: () async => (lib.liked.toList()..shuffle())));
+    }
+    for (final a in topArtists.take(4)) {
+      mixes.add(MixCard(title: '${a.name} Mix', subtitle: 'Radio', cover: a.picture, gradient: grads[gi++ % grads.length],
+        resolve: () => Deezer.artistRadio(a.id, limit: 40)));
+    }
+    if (trending.isNotEmpty) {
+      mixes.add(MixCard(title: 'Discovery', subtitle: 'Fresh picks', gradient: grads[gi++ % grads.length],
+        cover: trending.first.cover, resolve: () async => (recommended.isNotEmpty ? recommended : trending)));
+    }
+    return mixes;
   }
 
   @override
@@ -57,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final settings = context.watch<Settings>();
     final lib = context.watch<Library>();
     final hi = '${greeting()}${settings.displayName.isNotEmpty ? ', ${settings.displayName}' : ''}';
+    final mixes = _mixes(lib);
     return RefreshIndicator(
       onRefresh: _load,
       child: loading
@@ -64,48 +114,66 @@ class _HomeScreenState extends State<HomeScreen> {
           : ListView(children: [
               Padding(padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
                 child: Text(hi, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
+
+              if (settings.showQuickPicks && quickPicks.length >= 3) ...[
+                const SectionHeader('Quick picks'),
+                QuickPicks(songs: quickPicks),
+              ],
+
               if (lib.history.isNotEmpty) ...[
                 const SectionHeader('Recently played'),
                 ...lib.history.take(5).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: lib.history, index: e.key)),
               ],
+
+              if (settings.showQuickPlay && recommended.isNotEmpty) ...[
+                const SectionHeader('Made for you'),
+                CardShelf(children: recommended.take(15).toList().asMap().entries
+                    .map((e) => SongCardW(song: e.value, queue: recommended, index: e.key)).toList()),
+              ],
+
+              if (settings.showMixes && mixes.isNotEmpty) ...[
+                const SectionHeader('Mixes & radios'),
+                CardShelf(children: mixes),
+              ],
+
+              if (settings.showPlaylistsHome && lib.playlists.isNotEmpty) ...[
+                const SectionHeader('Your playlists'),
+                CardShelf(children: lib.playlists.map((p) => PlaylistCardW(playlist: p)).toList()),
+              ],
+
+              if (settings.showDownloadsHome && lib.downloads.isNotEmpty) ...[
+                const SectionHeader('Downloaded'),
+                CardShelf(children: lib.downloads.take(15).toList().asMap().entries
+                    .map((e) => SongCardW(song: e.value, queue: lib.downloads, index: e.key)).toList()),
+              ],
+
               if (becausePlayed.isNotEmpty) ...[
                 SectionHeader('Because you played ${lib.topArtistNames().first}'),
-                CardShelf(children: becausePlayed.map((s) => _MiniSong(song: s, queue: becausePlayed, index: becausePlayed.indexOf(s))).toList()),
+                CardShelf(children: becausePlayed.asMap().entries
+                    .map((e) => SongCardW(song: e.value, queue: becausePlayed, index: e.key)).toList()),
               ],
-              if (topArtists.isNotEmpty) ...[
-                SectionHeader(lib.history.isNotEmpty ? 'Your top artists' : 'Popular artists'),
-                CardShelf(children: topArtists.map((a) => ArtistCardW(artist: a)).toList()),
+
+              // ---------- Discover ----------
+              if (settings.showDiscover) ...[
+                const Padding(padding: EdgeInsets.fromLTRB(16, 26, 16, 0),
+                  child: Text('Discover', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
+                if (topArtists.isNotEmpty) ...[
+                  SectionHeader(lib.history.isNotEmpty ? 'Your top artists' : 'Popular artists'),
+                  CardShelf(children: topArtists.map((a) => ArtistCardW(artist: a)).toList()),
+                ],
+                if (settings.showTrending && trending.isNotEmpty) ...[
+                  const SectionHeader('Trending now'),
+                  ...trending.take(10).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: trending, index: e.key)),
+                ],
+                if (releases.isNotEmpty) ...[
+                  const SectionHeader('New releases'),
+                  CardShelf(children: releases.map((a) => AlbumCardW(album: a)).toList()),
+                ],
               ],
-              if (settings.showTrending) ...[
-                const SectionHeader('Trending now'),
-                ...trending.take(10).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: trending, index: e.key)),
-              ],
-              if (releases.isNotEmpty) ...[
-                const SectionHeader('New releases'),
-                CardShelf(children: releases.map((a) => AlbumCardW(album: a)).toList()),
-              ],
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
             ]),
     );
   }
-}
-
-class _MiniSong extends StatelessWidget {
-  final Song song; final List<Song> queue; final int index;
-  const _MiniSong({required this.song, required this.queue, required this.index});
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: () => context.read<Player>().playList(queue, index),
-        onLongPress: () => showSongMenu(context, song),
-        child: Container(width: 140, margin: const EdgeInsets.symmetric(horizontal: 6),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            cover(song.cover, 140, radius: 10),
-            const SizedBox(height: 6),
-            Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-            Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
-          ]),
-        ),
-      );
 }
 
 // ---------------- Search ----------------
@@ -117,14 +185,47 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _ctrl = TextEditingController();
+  final _focus = FocusNode();
   List<Song> songs = [];
   List<Artist> artists = [];
+  List<String> suggestions = [];
   bool loading = false;
+  bool showResults = false;
+  Timer? _debounce;
+  int _reqId = 0;
+
+  @override
+  void dispose() { _debounce?.cancel(); _ctrl.dispose(); _focus.dispose(); super.dispose(); }
+
+  void _onChanged(String q) {
+    _debounce?.cancel();
+    final t = q.trim();
+    if (t.isEmpty) { setState(() { suggestions = []; showResults = false; songs = []; artists = []; }); return; }
+    setState(() => showResults = false);
+    _debounce = Timer(const Duration(milliseconds: 260), () => _suggest(t));
+  }
+
+  // Live autocomplete: pull a few songs+artists and turn them into text suggestions.
+  Future<void> _suggest(String q) async {
+    final id = ++_reqId;
+    final r = await Future.wait([Deezer.search(q, limit: 8), Deezer.searchArtists(q, limit: 4)]);
+    if (!mounted || id != _reqId) return;
+    final sg = <String>[]; final seen = <String>{};
+    for (final a in (r[1] as List<Artist>)) { if (seen.add(a.name.toLowerCase())) sg.add(a.name); }
+    for (final s in (r[0] as List<Song>)) {
+      final label = '${s.title} · ${s.artist}';
+      if (seen.add(label.toLowerCase())) sg.add(label);
+    }
+    setState(() { suggestions = sg.take(10).toList(); });
+  }
 
   Future<void> _run(String q) async {
-    if (q.trim().isEmpty) return;
-    setState(() => loading = true);
-    final r = await Future.wait([Deezer.search(q.trim()), Deezer.searchArtists(q.trim())]);
+    q = q.trim();
+    if (q.isEmpty) return;
+    _focus.unfocus();
+    _ctrl.text = q;
+    setState(() { loading = true; showResults = true; suggestions = []; });
+    final r = await Future.wait([Deezer.search(q, limit: 40), Deezer.searchArtists(q)]);
     if (!mounted) return;
     setState(() { songs = r[0] as List<Song>; artists = r[1] as List<Artist>; loading = false; });
   }
@@ -135,23 +236,34 @@ class _SearchScreenState extends State<SearchScreen> {
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: TextField(
-          controller: _ctrl, textInputAction: TextInputAction.search, onSubmitted: _run,
+          controller: _ctrl, focusNode: _focus, textInputAction: TextInputAction.search,
+          onChanged: _onChanged, onSubmitted: _run,
           decoration: InputDecoration(
             hintText: 'Songs, artists, albums…', prefixIcon: const Icon(Icons.search),
+            suffixIcon: _ctrl.text.isEmpty ? null : IconButton(icon: const Icon(Icons.close),
+              onPressed: () { _ctrl.clear(); _onChanged(''); setState(() {}); }),
             filled: true, fillColor: surface,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(26), borderSide: BorderSide.none)),
         ),
       ),
       if (loading) const Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator()),
       Expanded(
-        child: ListView(children: [
-          if (artists.isNotEmpty) ...[
-            const SectionHeader('Artists'),
-            CardShelf(children: artists.map((a) => ArtistCardW(artist: a)).toList()),
-          ],
-          if (songs.isNotEmpty) const SectionHeader('Songs'),
-          ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key)),
-        ]),
+        child: (!showResults && suggestions.isNotEmpty)
+            ? ListView(children: suggestions.map((sg) => ListTile(
+                dense: true,
+                leading: const Icon(Icons.search, size: 20, color: Colors.white54),
+                title: Text(sg, maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: const Icon(Icons.north_west, size: 16, color: Colors.white38),
+                onTap: () => _run(sg.split(' · ').first),
+              )).toList())
+            : ListView(children: [
+                if (artists.isNotEmpty) ...[
+                  const SectionHeader('Artists'),
+                  CardShelf(children: artists.map((a) => ArtistCardW(artist: a)).toList()),
+                ],
+                if (songs.isNotEmpty) const SectionHeader('Songs'),
+                ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key)),
+              ]),
       ),
     ]);
   }

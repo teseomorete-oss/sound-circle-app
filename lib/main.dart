@@ -78,7 +78,18 @@ class _RootPageState extends State<RootPage> {
           const SizedBox(width: 8),
           Text('Sound Circle', style: TextStyle(fontWeight: FontWeight.w800, color: context.watch<Settings>().accentColors[0])),
         ]),
-        actions: [IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())))],
+        actions: [
+          if (context.watch<Player>().current != null)
+            IconButton(
+              tooltip: 'Queue',
+              icon: Badge(
+                isLabelVisible: context.watch<Player>().hasManualQueue,
+                label: Text('${context.watch<Player>().manualQueue.length}'),
+                child: const Icon(Icons.queue_music),
+              ),
+              onPressed: () => showQueue(context)),
+          IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+        ],
       ),
       body: IndexedStack(index: _tab, children: _pages),
       bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -127,7 +138,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
     return Material(
       color: const Color(0xFF101019),
       child: InkWell(
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NowPlayingScreen())),
+        onTap: () => Navigator.of(context).push(slideUpRoute(const NowPlayingScreen())),
         child: Container(
           height: 62,
           padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -138,7 +149,9 @@ class _MiniPlayerState extends State<MiniPlayer> {
             cover(s.cover, 46, radius: 6),
             const SizedBox(width: 12),
             Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+              context.watch<Settings>().scrollingTitles
+                  ? MarqueeText(s.title, style: const TextStyle(fontWeight: FontWeight.w600))
+                  : Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
               Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white60)),
             ])),
             if (p.loading)

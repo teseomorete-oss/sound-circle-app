@@ -18,6 +18,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
   Artist? artist;
   List<Song> top = [];
   List<Album> albums = [];
+  List<Artist> related = [];
   bool loading = true;
 
   @override
@@ -27,7 +28,19 @@ class _ArtistScreenState extends State<ArtistScreen> {
       Deezer.artist(widget.artistId).then((a) => artist = a),
       Deezer.artistTop(widget.artistId).then((t) => top = t),
       Deezer.artistAlbums(widget.artistId).then((a) => albums = a),
+      Deezer.relatedArtists(widget.artistId).then((a) => related = a),
     ]).whenComplete(() => mounted ? setState(() => loading = false) : null);
+  }
+
+  String _description() {
+    final a = artist;
+    if (a == null) return '';
+    final parts = <String>[];
+    if (a.nbFan != null && a.nbFan! > 0) parts.add('${fanCount(a.nbFan)} fans');
+    if (a.nbAlbum != null && a.nbAlbum! > 0) parts.add('${a.nbAlbum} releases');
+    final tail = parts.isEmpty ? '' : ' — ${parts.join(' · ')}';
+    return '${a.name} is one of the artists in your Sound Circle$tail. '
+        'Explore their top tracks, albums, and dive into a radio of similar music.';
   }
 
   @override
@@ -35,18 +48,23 @@ class _ArtistScreenState extends State<ArtistScreen> {
     final lib = context.watch<Library>();
     final following = lib.isFollowing(widget.artistId);
     final pic = artist?.picture;
+    final accent = Theme.of(context).colorScheme.primary;
     return Scaffold(
       body: CustomScrollView(slivers: [
         SliverAppBar(
-          expandedHeight: 300,
+          expandedHeight: 320,
           pinned: true,
           flexibleSpace: FlexibleSpaceBar(
-            title: Text(artist?.name ?? widget.name),
+            titlePadding: const EdgeInsets.only(left: 16, bottom: 14, right: 16),
+            title: Text(artist?.name ?? widget.name, style: const TextStyle(fontWeight: FontWeight.w800)),
             background: Stack(fit: StackFit.expand, children: [
               if (pic != null) CachedNetworkImage(imageUrl: pic, fit: BoxFit.cover),
-              const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
+              // A soft multi-stop fade from the photo into the black UI (no hard edge).
+              DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Colors.black87]))),
+                stops: const [0.0, 0.45, 0.75, 1.0],
+                colors: [Colors.transparent, Colors.black.withValues(alpha: 0.15),
+                  Colors.black.withValues(alpha: 0.65), Theme.of(context).scaffoldBackgroundColor]))),
             ]),
           ),
         ),
@@ -55,14 +73,21 @@ class _ArtistScreenState extends State<ArtistScreen> {
         else ...[
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Row(children: [
+                if (artist?.nbFan != null)
+                  Text('${fanCount(artist!.nbFan)} followers', style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w600)),
+                const Spacer(),
                 if (top.isNotEmpty)
-                  FilledButton.icon(onPressed: () => context.read<Player>().playList(top, 0), icon: const Icon(Icons.play_arrow), label: const Text('Play')),
-                const SizedBox(width: 12),
-                OutlinedButton(
+                  IconButton.filled(onPressed: () => context.read<Player>().playList(top, 0), icon: const Icon(Icons.play_arrow)),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: following ? accent : Colors.white,
+                    side: BorderSide(color: following ? accent : Colors.white38)),
                   onPressed: () => artist != null ? lib.toggleFollow(artist!) : null,
-                  child: Text(following ? '✓ Following' : '+ Follow'),
+                  icon: Icon(following ? Icons.check : Icons.add, size: 18),
+                  label: Text(following ? 'Following' : 'Follow'),
                 ),
               ]),
             ),
@@ -73,15 +98,64 @@ class _ArtistScreenState extends State<ArtistScreen> {
               (context, i) => SongTile(song: top[i], queue: top, index: i),
               childCount: top.length > 8 ? 8 : top.length)),
           ],
+          // Mixes & radios built from this artist
+          if (top.isNotEmpty || artist != null) ...[
+            const SliverToBoxAdapter(child: SectionHeader('Mixes & radios')),
+            SliverToBoxAdapter(child: CardShelf(children: [
+              MixCard(title: '${artist?.name ?? widget.name} Radio', subtitle: 'Endless mix', cover: pic,
+                gradient: [accent, const Color(0xFF1E293B)],
+                resolve: () => Deezer.artistRadio(widget.artistId, limit: 40)),
+              if (top.isNotEmpty)
+                MixCard(title: 'This Is ${artist?.name ?? widget.name}', subtitle: 'Their essentials', cover: top.first.cover,
+                  gradient: [const Color(0xFF7C3AED), const Color(0xFFEC4899)],
+                  resolve: () => Deezer.artistTop(widget.artistId, limit: 40)),
+            ])),
+          ],
           if (albums.isNotEmpty) ...[
             const SliverToBoxAdapter(child: SectionHeader('Albums')),
-            SliverToBoxAdapter(child: CardShelf(children: albums.map((a) => AlbumCardW(album: a)).toList())),
+            // Bigger album covers than the song shelves.
+            SliverToBoxAdapter(child: SizedBox(
+              height: 230,
+              child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: albums.map((a) => _BigAlbumCard(album: a)).toList()),
+            )),
           ],
-          const SliverToBoxAdapter(child: SizedBox(height: 20)),
+          if (related.isNotEmpty) ...[
+            const SliverToBoxAdapter(child: SectionHeader('Fans also like')),
+            SliverToBoxAdapter(child: CardShelf(children: related.map((a) => ArtistCardW(artist: a)).toList())),
+          ],
+          SliverToBoxAdapter(child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+            child: Text('About', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: accent)),
+          )),
+          SliverToBoxAdapter(child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(_description(), style: const TextStyle(color: Colors.white60, height: 1.5)),
+          )),
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
       ]),
     );
   }
+}
+
+// A larger album card used on the artist page.
+class _BigAlbumCard extends StatelessWidget {
+  final Album album;
+  const _BigAlbumCard({required this.album});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: album.id, title: album.title))),
+        child: Container(width: 168, margin: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            cover(album.cover, 168, radius: 12, icon: Icons.album),
+            const SizedBox(height: 6),
+            Text(album.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            if (album.releaseDate != null && album.releaseDate!.length >= 4)
+              Text(album.releaseDate!.substring(0, 4), style: const TextStyle(fontSize: 12, color: Colors.white54)),
+          ]),
+        ),
+      );
 }
 
 class AlbumScreen extends StatefulWidget {

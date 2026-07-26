@@ -5,7 +5,10 @@ import 'package:palette_generator/palette_generator.dart';
 import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
+import 'settings.dart';
 import 'widgets.dart';
+import 'detail.dart';
+import 'downloads.dart';
 
 String _fmt(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
 
@@ -33,6 +36,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
       final c = pg.vibrantColor?.color ?? pg.dominantColor?.color ?? pg.mutedColor?.color;
       if (c != null && mounted) setState(() => _bg = c);
     } catch (_) {}
+  }
+
+  void _toggleDownload(Song s, Library lib) {
+    final messenger = ScaffoldMessenger.of(context);
+    final player = context.read<Player>();
+    if (lib.isDownloaded(s.deezerId)) {
+      Downloads.delete(lib, s);
+      messenger.showSnackBar(const SnackBar(content: Text('Removed download'), duration: Duration(milliseconds: 1100)));
+    } else {
+      messenger.showSnackBar(const SnackBar(content: Text('Downloading…'), duration: Duration(milliseconds: 1200)));
+      Downloads.download(player, lib, s).then((ok) => messenger.showSnackBar(
+        SnackBar(content: Text(ok ? 'Downloaded' : 'Download failed'), duration: const Duration(milliseconds: 1200))));
+    }
   }
 
   Future<void> _loadLyrics(Song s) async {
@@ -102,9 +118,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
               // title + like
               Row(children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
+                  context.watch<Settings>().scrollingTitles
+                      ? MarqueeText(s.title, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800))
+                      : Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 2),
-                  Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, color: Colors.white70)),
+                  GestureDetector(
+                    onTap: s.artistId == null ? null : () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: s.artistId!, name: s.artist)));
+                    },
+                    child: Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15, color: Colors.white70, decoration: TextDecoration.none)),
+                  ),
                 ])),
                 IconButton(iconSize: 30,
                   icon: Icon(liked ? Icons.favorite : Icons.favorite_border, color: liked ? const Color(0xFF1DB954) : Colors.white),
@@ -143,14 +168,23 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
               ]),
 
               const SizedBox(height: 16),
-              // bottom bar: lyrics toggle + queue
+              // bottom bar: download (left) · lyrics (center) · more (right)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                IconButton(
+                  tooltip: lib.isDownloaded(s.deezerId) ? 'Downloaded' : 'Download',
+                  icon: Icon(
+                    lib.isDownloaded(s.deezerId) ? Icons.download_done : Icons.download_outlined,
+                    color: lib.isDownloaded(s.deezerId) ? const Color(0xFF1DB954) : Colors.white70),
+                  onPressed: () => _toggleDownload(s, lib),
+                ),
                 TextButton.icon(
                   onPressed: () => setState(() => showLyrics = !showLyrics),
-                  icon: Icon(showLyrics ? Icons.image_outlined : Icons.lyrics_outlined, size: 18, color: Colors.white70),
-                  label: Text(showLyrics ? 'Cover' : 'Lyrics', style: const TextStyle(color: Colors.white70)),
+                  icon: Icon(showLyrics ? Icons.image_outlined : Icons.lyrics_outlined, size: 18,
+                    color: showLyrics ? Colors.white : Colors.white70),
+                  label: Text(showLyrics ? 'Cover' : 'Lyrics',
+                    style: TextStyle(color: showLyrics ? Colors.white : Colors.white70, fontWeight: FontWeight.w600)),
                 ),
-                IconButton(icon: const Icon(Icons.playlist_add, color: Colors.white70), onPressed: () => showSongMenu(context, s)),
+                IconButton(icon: const Icon(Icons.more_horiz, color: Colors.white70), onPressed: () => showSongMenu(context, s)),
               ]),
               if (p.error != null) Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(p.error!, style: const TextStyle(color: Colors.redAccent))),
             ]),
@@ -167,28 +201,40 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
       final active = _activeLine(pos);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scroll.hasClients && active >= 0) {
-          final target = (active * 62.0) - 180;
-          _scroll.animateTo(target.clamp(0, _scroll.position.maxScrollExtent),
-              duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+          final target = (active * 66.0) - 220;
+          _scroll.animateTo(target.clamp(0.0, _scroll.position.maxScrollExtent),
+              duration: const Duration(milliseconds: 450), curve: Curves.easeOutCubic);
         }
       });
       return ListView.builder(
         controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: 20),
+        padding: const EdgeInsets.symmetric(vertical: 40),
         itemCount: synced.length,
         itemBuilder: (context, i) {
           final on = i == active;
           final passed = i < active;
           return GestureDetector(
             onTap: () => context.read<Player>().seek(Duration(milliseconds: (synced[i].time * 1000).round())),
-            child: Padding(
+            behavior: HitTestBehavior.opaque,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
               padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text,
-                textAlign: TextAlign.left,
-                style: TextStyle(
-                  fontSize: 27, height: 1.15,
-                  fontWeight: FontWeight.w800,
-                  color: on ? Colors.white : (passed ? Colors.white54 : Colors.white38))),
+              child: AnimatedScale(
+                scale: on ? 1.0 : 0.94,
+                alignment: Alignment.centerLeft,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                  style: TextStyle(
+                    fontSize: 27, height: 1.2,
+                    fontWeight: FontWeight.w800,
+                    color: on ? Colors.white : (passed ? Colors.white54 : Colors.white38)),
+                  child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
+                ),
+              ),
             ),
           );
         },

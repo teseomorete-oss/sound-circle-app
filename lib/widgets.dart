@@ -7,8 +7,84 @@ import 'store.dart';
 import 'settings.dart';
 import 'detail.dart';
 import 'downloads.dart';
+import 'screens.dart';
 
 const surface = Color(0xFF16161f);
+
+/// Text that scrolls back and forth when it's wider than the available space
+/// (e.g. long titles like "Quevedo: Bzrp Music Sessions"). Otherwise static.
+class MarqueeText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+  const MarqueeText(this.text, {super.key, this.style});
+  @override
+  State<MarqueeText> createState() => _MarqueeTextState();
+}
+
+class _MarqueeTextState extends State<MarqueeText> with SingleTickerProviderStateMixin {
+  final _scroll = ScrollController();
+  bool _running = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeStart());
+  }
+
+  Future<void> _maybeStart() async {
+    if (!mounted || _running) return;
+    if (!_scroll.hasClients || _scroll.position.maxScrollExtent <= 0) return;
+    _running = true;
+    while (mounted) {
+      await Future.delayed(const Duration(milliseconds: 1400));
+      if (!mounted || !_scroll.hasClients) break;
+      final max = _scroll.position.maxScrollExtent;
+      await _scroll.animateTo(max, duration: Duration(milliseconds: (max * 18).round().clamp(1800, 9000)), curve: Curves.linear);
+      if (!mounted || !_scroll.hasClients) break;
+      await Future.delayed(const Duration(milliseconds: 1200));
+      if (!mounted || !_scroll.hasClients) break;
+      await _scroll.animateTo(0, duration: const Duration(milliseconds: 600), curve: Curves.easeOut);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant MarqueeText old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) {
+      _running = false;
+      if (_scroll.hasClients) _scroll.jumpTo(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeStart());
+    }
+  }
+
+  @override
+  void dispose() { _scroll.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        controller: _scroll,
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        child: Text(widget.text, maxLines: 1, style: widget.style),
+      );
+}
+
+/// A polished slide-up + fade route (used to open the full-screen player).
+Route<T> slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
+      transitionDuration: const Duration(milliseconds: 380),
+      reverseTransitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (_, __, ___) => page,
+      transitionsBuilder: (_, anim, __, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween(begin: const Offset(0, 0.12), end: Offset.zero).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
 
 Widget cover(String? url, double size, {double radius = 8, IconData icon = Icons.music_note}) {
   return ClipRRect(
@@ -243,57 +319,192 @@ class ArtistCardW extends StatelessWidget {
       );
 }
 
-// ---- Visible queue (Now Playing → queue icon) ----
+String fanCount(int? n) {
+  if (n == null) return '';
+  if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(n >= 10000000 ? 0 : 1)}M';
+  if (n >= 1000) return '${(n / 1000).toStringAsFixed(n >= 10000 ? 0 : 1)}K';
+  return '$n';
+}
+
+/// A song card for horizontal shelves (Schnellauswahl / recommendations).
+class SongCardW extends StatelessWidget {
+  final Song song; final List<Song> queue; final int index; final double width;
+  const SongCardW({super.key, required this.song, required this.queue, required this.index, this.width = 150});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => context.read<Player>().playList(queue, index),
+        onLongPress: () => showSongMenu(context, song),
+        child: Container(width: width, margin: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            cover(song.cover, width, radius: 10),
+            const SizedBox(height: 6),
+            Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+          ]),
+        ),
+      );
+}
+
+/// YT-Music style "Quick picks": a horizontally-paged 3-row grid of song rows.
+class QuickPicks extends StatelessWidget {
+  final List<Song> songs;
+  const QuickPicks({super.key, required this.songs});
+  @override
+  Widget build(BuildContext context) {
+    final pages = <List<Song>>[];
+    for (var i = 0; i < songs.length; i += 3) {
+      pages.add(songs.sublist(i, (i + 3).clamp(0, songs.length)));
+    }
+    final w = MediaQuery.of(context).size.width;
+    return SizedBox(
+      height: 3 * 64.0,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        itemCount: pages.length,
+        itemBuilder: (context, pi) => SizedBox(
+          width: pages.length == 1 ? w - 20 : w * 0.86,
+          child: Column(children: pages[pi].map((s) {
+            final gi = songs.indexOf(s);
+            return Expanded(child: InkWell(
+              onTap: () => context.read<Player>().playList(songs, gi),
+              onLongPress: () => showSongMenu(context, s),
+              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Row(children: [
+                  cover(s.cover, 48),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                  ])),
+                  IconButton(icon: const Icon(Icons.more_vert, size: 20), onPressed: () => showSongMenu(context, s)),
+                ]),
+              ),
+            ));
+          }).toList()),
+        ),
+      ),
+    );
+  }
+}
+
+/// A gradient "mix"/radio card. onTap resolves songs and starts playback.
+class MixCard extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final String? cover;
+  final List<Color> gradient;
+  final Future<List<Song>> Function() resolve;
+  const MixCard({super.key, required this.title, this.subtitle, this.cover, required this.gradient, required this.resolve});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          final player = context.read<Player>();
+          messenger.showSnackBar(SnackBar(content: Text('Starting $title…'), duration: const Duration(milliseconds: 1000)));
+          final songs = await resolve();
+          if (songs.isEmpty) { messenger.showSnackBar(const SnackBar(content: Text('Nothing to play'), duration: Duration(milliseconds: 1000))); return; }
+          player.playList(songs, 0);
+        },
+        child: Container(
+          width: 150, margin: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 150, height: 150,
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
+                gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight)),
+              child: Stack(children: [
+                if (cover != null) Positioned.fill(child: ClipRRect(borderRadius: BorderRadius.circular(10),
+                  child: Opacity(opacity: 0.5, child: CachedNetworkImage(imageUrl: cover!, fit: BoxFit.cover)))),
+                const Positioned(right: 8, top: 8, child: Icon(Icons.graphic_eq, color: Colors.white70, size: 18)),
+                Positioned(left: 10, bottom: 10, right: 10,
+                  child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white,
+                      shadows: [Shadow(blurRadius: 6, color: Colors.black54)]))),
+              ]),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+            ],
+          ]),
+        ),
+      );
+}
+
+class PlaylistCardW extends StatelessWidget {
+  final Playlist playlist;
+  const PlaylistCardW({super.key, required this.playlist});
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PlaylistScreen(id: playlist.id))),
+        child: Container(width: 140, margin: const EdgeInsets.symmetric(horizontal: 6),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            cover(playlist.songs.isNotEmpty ? playlist.songs.first.cover : null, 140, radius: 10, icon: Icons.queue_music),
+            const SizedBox(height: 6),
+            Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            Text('${playlist.songs.length} songs', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+          ]),
+        ),
+      );
+}
+
+// ---- Visible queue (manual songs only) ----
 void showQueue(BuildContext context) {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: const Color(0xFF14141f),
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (_) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      maxChildSize: 0.92,
-      builder: (context, scroll) => Consumer<Player>(builder: (context, p, _) {
-        final up = p.upNext;
-        final radio = p.radioNext;
-        return ListView(controller: scroll, children: [
-          const Padding(padding: EdgeInsets.fromLTRB(20, 14, 20, 4),
-            child: Text('Queue', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
+  final settings = context.read<Settings>();
+  final expands = settings.queueExpands;
+  Widget content(ScrollController? scroll) => Consumer2<Player, Settings>(builder: (context, p, s, _) {
+        final up = p.manualQueue;
+        final titles = s.queueShowTitles;
+        return ListView(controller: scroll, padding: EdgeInsets.zero, children: [
+          Padding(padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('Queue', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              if (up.isNotEmpty) TextButton.icon(
+                onPressed: () { for (var i = up.length - 1; i >= 0; i--) p.removeUpNext(i); },
+                icon: const Icon(Icons.clear_all, size: 18), label: const Text('Clear')),
+            ])),
           if (p.current != null) ...[
             const _MiniHeader('Now playing'),
             ListTile(
               leading: cover(p.current!.cover, 46),
               title: Text(p.current!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(p.current!.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: titles ? Text(p.current!.artist, maxLines: 1, overflow: TextOverflow.ellipsis) : null,
               trailing: Icon(Icons.equalizer, color: Theme.of(context).colorScheme.primary),
             ),
           ],
           if (up.isNotEmpty) ...[
-            const _MiniHeader('Next in queue'),
+            const _MiniHeader('Next in queue · manually added'),
             ...up.asMap().entries.map((e) => ListTile(
               key: ValueKey('q${e.value.deezerId}_${e.key}'),
-              leading: cover(e.value.cover, 46),
+              dense: !titles,
+              leading: cover(e.value.cover, titles ? 46 : 38),
               title: Text(e.value.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(e.value.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: titles ? Text(e.value.artist, maxLines: 1, overflow: TextOverflow.ellipsis) : null,
               onTap: () => p.playUpNext(e.key),
               trailing: IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => p.removeUpNext(e.key)),
             )),
           ],
-          if (radio.isNotEmpty) ...[
-            const _MiniHeader('Autoplay radio'),
-            ...radio.take(10).map((s) => ListTile(
-              leading: Opacity(opacity: 0.7, child: cover(s.cover, 46)),
-              title: Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70)),
-              subtitle: Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-            )),
-          ],
-          if (up.isEmpty && radio.isEmpty)
-            const Padding(padding: EdgeInsets.all(30), child: Center(child: Text('Nothing queued.\nAdd songs with “Play next”.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38)))),
+          if (up.isEmpty)
+            const Padding(padding: EdgeInsets.all(30), child: Center(child: Text('Nothing queued.\nAdd songs with “Play next” or “Add to queue”.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white38)))),
           const SizedBox(height: 20),
         ]);
-      }),
-    ),
+      });
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF14141f),
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (_) => expands
+        ? DraggableScrollableSheet(
+            expand: false, initialChildSize: 0.6, minChildSize: 0.35, maxChildSize: 0.92, snap: true,
+            builder: (context, scroll) => content(scroll),
+          )
+        : SizedBox(
+            height: MediaQuery.of(context).size.height * 0.62,
+            child: content(null),
+          ),
   );
 }
 

@@ -53,14 +53,16 @@ class Artist {
   final String name;
   final String? picture;
   final int? nbFan;
-  Artist({required this.id, required this.name, this.picture, this.nbFan});
+  final int? nbAlbum;
+  Artist({required this.id, required this.name, this.picture, this.nbFan, this.nbAlbum});
   factory Artist.fromDeezer(Map<String, dynamic> j) => Artist(
         id: j['id'], name: j['name'] ?? '',
         picture: (j['picture_xl'] ?? j['picture_big'] ?? j['picture_medium']) as String?,
         nbFan: j['nb_fan'] as int?,
+        nbAlbum: j['nb_album'] as int?,
       );
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'picture': picture, 'nbFan': nbFan};
-  factory Artist.fromJson(Map<String, dynamic> j) => Artist(id: j['id'], name: j['name'], picture: j['picture'], nbFan: j['nbFan']);
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'picture': picture, 'nbFan': nbFan, 'nbAlbum': nbAlbum};
+  factory Artist.fromJson(Map<String, dynamic> j) => Artist(id: j['id'], name: j['name'], picture: j['picture'], nbFan: j['nbFan'], nbAlbum: j['nbAlbum']);
 }
 
 class Album {
@@ -127,6 +129,13 @@ class Deezer {
 
   static Future<Artist?> artist(int id) async {
     try { return Artist.fromDeezer((await _get('/artist/$id')) as Map<String, dynamic>); } catch (_) { return null; }
+  }
+
+  static Future<List<Artist>> relatedArtists(int id, {int limit = 12}) async {
+    try {
+      final data = ((await _get('/artist/$id/related?limit=$limit'))['data'] as List?) ?? [];
+      return data.map((e) => Artist.fromDeezer(e as Map<String, dynamic>)).toList();
+    } catch (_) { return []; }
   }
 
   static Future<List<Album>> artistAlbums(int id, {int limit = 30}) async {
