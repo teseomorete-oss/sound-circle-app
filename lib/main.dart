@@ -24,6 +24,21 @@ Future<void> main() async {
   final player = Player()..autoplay = settings.autoplay;
   player.onPlayed = library.addHistory;
   player.localPath = library.downloadPath; // play offline files when available
+  player.onError = (message, offline) {
+    final m = scaffoldMessengerKey.currentState;
+    if (m == null) return;
+    m.hideCurrentSnackBar();
+    m.showSnackBar(SnackBar(
+      content: Text(offline ? 'Sorry, no internet connection' : message),
+      duration: const Duration(seconds: 4),
+      action: offline
+          ? SnackBarAction(label: 'Downloads', onPressed: () {
+              final ctx = navigatorKey.currentContext;
+              if (ctx != null) Navigator.push(ctx, MaterialPageRoute(builder: (_) => const SongListScreen(kind: SongListKind.downloads)));
+            })
+          : null,
+    ));
+  };
 
   runApp(MultiProvider(
     providers: [
@@ -35,6 +50,9 @@ Future<void> main() async {
   ));
 }
 
+final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+final navigatorKey = GlobalKey<NavigatorState>();
+
 class SoundCircleApp extends StatelessWidget {
   const SoundCircleApp({super.key});
   @override
@@ -43,6 +61,8 @@ class SoundCircleApp extends StatelessWidget {
     return MaterialApp(
       title: 'Sound Circle',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: scaffoldMessengerKey,
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,

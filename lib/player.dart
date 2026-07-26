@@ -33,6 +33,7 @@ class Player extends ChangeNotifier {
 
   final Map<int, Uri> _urlCache = {};
   void Function(Song)? onPlayed;
+  void Function(String message, bool offline)? onError;
   String? Function(int deezerId)? localPath; // returns a downloaded file path if offline-saved
 
   AudioPlayer get audio => _audio;
@@ -129,12 +130,50 @@ class Player extends ChangeNotifier {
     });
   }
 
+  // Pick the YouTube result that best matches the Deezer track — by title/artist
+  // words and, crucially, by duration — so e.g. "Algo Va A Pasar" doesn't get a
+  // random Quevedo upload. Falls back to the first result if nothing scores well.
+  Future<Video?> _bestVideo(Song s) async {
+    final results = await _yt.search.search('${s.artist} ${s.title}');
+    if (results.isEmpty) return null;
+    final titleL = s.title.toLowerCase();
+    final artistL = s.artist.toLowerCase();
+    // significant words of the title (ignore short filler)
+    final titleWords = titleL.split(RegExp(r'[^a-z0-9áéíóúñ]+')).where((w) => w.length > 2).toSet();
+    Video? best; double bestScore = -1e9;
+    for (final v in results.take(7)) {
+      final vt = v.title.toLowerCase();
+      final va = v.author.toLowerCase();
+      double score = 0;
+      // title word overlap
+      if (titleWords.isNotEmpty) {
+        final hit = titleWords.where((w) => vt.contains(w)).length / titleWords.length;
+        score += hit * 4;
+      }
+      if (vt.contains(artistL) || va.contains(artistL)) score += 3;
+      // duration proximity (the strongest signal)
+      final d = v.duration?.inSeconds;
+      if (s.duration != null && d != null && d > 0) {
+        final diff = (d - s.duration!).abs();
+        if (diff <= 2) { score += 5; }
+        else if (diff <= 6) { score += 3; }
+        else if (diff <= 15) { score += 1; }
+        else if (diff > 40) { score -= 4; }
+      }
+      // avoid obviously-wrong variants unless the track itself is one
+      for (final bad in const ['live', 'cover', 'remix', 'sped up', 'slowed', 'reverb', 'karaoke', 'instrumental', 'mashup', '8d']) {
+        if (vt.contains(bad) && !titleL.contains(bad)) score -= 2;
+      }
+      if (score > bestScore) { bestScore = score; best = v; }
+    }
+    return best ?? results.first;
+  }
+
   // Resolve a song → a playable audio stream URL. Uses the ANDROID_VR client,
   // whose stream URLs don't need signature deciphering and play in ExoPlayer
   // without the 403 that the default android/ios stream URLs cause.
   Future<Uri?> _resolveYt(Song s) async {
-    final results = await _yt.search.search('${s.artist} ${s.title} audio');
-    final video = results.firstOrNull;
+    final video = await _bestVideo(s);
     if (video == null) return null;
     StreamManifest? manifest;
     for (final client in [YoutubeApiClient.androidVr, YoutubeApiClient.ios, YoutubeApiClient.android]) {
@@ -159,8 +198,7 @@ class Player extends ChangeNotifier {
   /// A byte stream of a song's audio (used by the downloader) — goes through
   /// youtube_explode's own client so YouTube's range/headers requirements are met.
   Future<Stream<List<int>>?> audioByteStream(Song s) async {
-    final results = await _yt.search.search('${s.artist} ${s.title} audio');
-    final video = results.firstOrNull;
+    final video = await _bestVideo(s);
     if (video == null) return null;
     for (final client in [YoutubeApiClient.androidVr, YoutubeApiClient.ios, YoutubeApiClient.android]) {
       try {
@@ -208,6 +246,7 @@ class Player extends ChangeNotifier {
       error = online ? 'Couldn\'t play "${s.title}"' : 'No internet connection';
       needsDownloads = !online;
       notifyListeners();
+      onError?.call(error!, !online);
     }
   }
 

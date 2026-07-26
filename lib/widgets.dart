@@ -494,7 +494,8 @@ class MixCard extends StatelessWidget {
 /// "NEXT UP" strip at the top of Home — horizontal, drag to reorder, tap to
 /// jump, X to remove. Shows only the manual queue.
 class NextUpBar extends StatefulWidget {
-  const NextUpBar({super.key});
+  final double shrink; // 0 = full, 1 = collapsed (driven by page scroll)
+  const NextUpBar({super.key, this.shrink = 0});
   @override
   State<NextUpBar> createState() => _NextUpBarState();
 }
@@ -506,6 +507,16 @@ class _NextUpBarState extends State<NextUpBar> {
     final p = context.watch<Player>();
     final q = p.manualQueue;
     if (q.isEmpty || hidden) return const SizedBox.shrink();
+    final t = widget.shrink.clamp(0.0, 1.0);
+    // Collapse vertically + fade as the page scrolls down.
+    return ClipRect(child: Align(
+      alignment: Alignment.topCenter,
+      heightFactor: 1 - t,
+      child: Opacity(opacity: (1 - t * 1.4).clamp(0.0, 1.0), child: _bar(context, p, q)),
+    ));
+  }
+
+  Widget _bar(BuildContext context, Player p, List<Song> q) {
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.only(bottom: 8),

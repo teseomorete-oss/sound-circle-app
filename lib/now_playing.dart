@@ -59,12 +59,34 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     if (mounted && _lyricsForId == s.deezerId) setState(() => lyrics = l);
   }
 
+  // Measured line geometry so we can smoothly centre even off-screen lines.
+  List<double>? _lineTops;
+  List<double>? _lineHeights;
+  double? _measuredWidth;
+  int? _measuredForId;
+
+  void _measure(double width, List<LyricLine> lines) {
+    final tops = <double>[]; final heights = <double>[];
+    double y = 0;
+    for (final l in lines) {
+      final tp = TextPainter(
+        text: TextSpan(text: l.text.isEmpty ? '♪' : l.text,
+          style: const TextStyle(fontSize: 27, height: 1.2, fontWeight: FontWeight.w800)),
+        textDirection: TextDirection.ltr)..layout(maxWidth: width);
+      final h = tp.height + 20; // vertical padding 10*2
+      tops.add(y); heights.add(h); y += h;
+    }
+    _lineTops = tops; _lineHeights = heights;
+  }
+
   int _activeLine(double pos) {
     final synced = lyrics?.synced;
     if (synced == null) return -1;
     int idx = -1;
+    // Highlight the line whose start time has been reached (no artificial lead —
+    // the previous +0.4s made lyrics run ahead of the vocals on many songs).
     for (int i = 0; i < synced.length; i++) {
-      if (synced[i].time <= pos + 0.4) idx = i; else break;
+      if (synced[i].time <= pos) idx = i; else break;
     }
     return idx;
   }
@@ -201,46 +223,54 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     final synced = lyrics!.synced;
     if (synced != null && synced.isNotEmpty) {
       final active = _activeLine(pos);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients && active >= 0) {
-          final target = (active * 66.0) - 220;
-          _scroll.animateTo(target.clamp(0.0, _scroll.position.maxScrollExtent),
-              duration: const Duration(milliseconds: 450), curve: Curves.easeOutCubic);
+      return LayoutBuilder(builder: (context, box) {
+        if (_measuredForId != _lyricsForId || _measuredWidth != box.maxWidth) {
+          _measure(box.maxWidth, synced);
+          _measuredForId = _lyricsForId; _measuredWidth = box.maxWidth;
         }
-      });
-      return ListView.builder(
-        controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        itemCount: synced.length,
-        itemBuilder: (context, i) {
-          final on = i == active;
-          final passed = i < active;
-          return GestureDetector(
-            onTap: () => context.read<Player>().seek(Duration(milliseconds: (synced[i].time * 1000).round())),
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(vertical: 10),
+        final pad = box.maxHeight * 0.42; // lets first & last lines reach the middle
+        // Centre the active line: scroll so its middle sits at the viewport middle.
+        // The text above scrolls up; the active line stays put in the centre.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_scroll.hasClients || active < 0 || _lineTops == null || active >= _lineTops!.length) return;
+          final target = pad + _lineTops![active] + _lineHeights![active] / 2 - box.maxHeight / 2;
+          final clamped = target.clamp(0.0, _scroll.position.maxScrollExtent);
+          if ((_scroll.offset - clamped).abs() > 2) {
+            _scroll.animateTo(clamped, duration: const Duration(milliseconds: 550), curve: Curves.easeOutCubic);
+          }
+        });
+        return ListView.builder(
+          controller: _scroll,
+          padding: EdgeInsets.symmetric(vertical: pad),
+          itemCount: synced.length,
+          itemBuilder: (context, i) {
+            final on = i == active;
+            final passed = i < active;
+            return GestureDetector(
+              onTap: () => context.read<Player>().seek(Duration(milliseconds: (synced[i].time * 1000).round())),
+              behavior: HitTestBehavior.opaque,
               child: AnimatedScale(
                 scale: on ? 1.0 : 0.94,
                 alignment: Alignment.centerLeft,
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOut,
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOut,
-                  style: TextStyle(
-                    fontSize: 27, height: 1.2,
-                    fontWeight: FontWeight.w800,
-                    color: on ? Colors.white : (passed ? Colors.white54 : Colors.white38)),
-                  child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                    style: TextStyle(
+                      fontSize: 27, height: 1.2,
+                      fontWeight: FontWeight.w800,
+                      color: on ? Colors.white : (passed ? Colors.white54 : Colors.white38)),
+                    child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
+                  ),
                 ),
               ),
-            ),
-          );
-        },
-      );
+            );
+          },
+        );
+      });
     }
     if (lyrics!.plain != null && lyrics!.plain!.trim().isNotEmpty) {
       return SingleChildScrollView(padding: const EdgeInsets.symmetric(vertical: 20),

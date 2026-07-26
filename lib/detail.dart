@@ -58,19 +58,22 @@ class _ArtistScreenState extends State<ArtistScreen> {
         SliverAppBar(
           expandedHeight: 320,
           pinned: true,
-          flexibleSpace: FlexibleSpaceBar(
-            titlePadding: const EdgeInsets.only(left: 16, bottom: 14, right: 16),
-            title: Text(artist?.name ?? widget.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-            background: Stack(fit: StackFit.expand, children: [
-              if (pic != null) CachedNetworkImage(imageUrl: pic, fit: BoxFit.cover),
-              // A soft multi-stop fade from the photo into the black UI (no hard edge).
-              DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
+          flexibleSpace: Stack(fit: StackFit.expand, children: [
+            if (pic != null) CachedNetworkImage(imageUrl: pic, fit: BoxFit.cover),
+            // Fade anchored to the BOTTOM of the header (the seam with the page),
+            // so it always melts into the black UI — never showing the photo's edge.
+            Positioned(left: 0, right: 0, bottom: 0, child: IgnorePointer(child: Container(
+              height: 300,
+              decoration: BoxDecoration(gradient: LinearGradient(
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                stops: const [0.0, 0.45, 0.75, 1.0],
-                colors: [Colors.transparent, Colors.black.withValues(alpha: 0.15),
-                  Colors.black.withValues(alpha: 0.65), bg]))),
-            ]),
-          ),
+                stops: const [0.0, 0.55, 1.0],
+                colors: [Colors.transparent, bg.withValues(alpha: 0.7), bg])),
+            ))),
+            FlexibleSpaceBar(
+              titlePadding: const EdgeInsets.only(left: 16, bottom: 14, right: 16),
+              title: Text(artist?.name ?? widget.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ]),
         ),
         if (loading)
           const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator())))

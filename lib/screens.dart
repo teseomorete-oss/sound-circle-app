@@ -31,8 +31,18 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Song> recommended = [];
   bool loading = true;
 
+  final _sc = ScrollController();
+  final _shrink = ValueNotifier<double>(0);
+
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _sc.addListener(() => _shrink.value = (_sc.offset / 170).clamp(0.0, 1.0));
+    _load();
+  }
+
+  @override
+  void dispose() { _sc.dispose(); _shrink.dispose(); super.dispose(); }
 
   Future<void> _load() async {
     final lib = context.read<Library>();
@@ -108,12 +118,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final lib = context.watch<Library>();
     final hi = '${greeting()}${settings.displayName.isNotEmpty ? ', ${settings.displayName}' : ''}';
     final mixes = _mixes(lib);
-    return RefreshIndicator(
+    return Column(children: [
+      // NEXT UP sits above the scroll and contracts as you scroll down.
+      ValueListenableBuilder<double>(valueListenable: _shrink,
+        builder: (_, t, __) => NextUpBar(shrink: t)),
+      Expanded(child: RefreshIndicator(
       onRefresh: _load,
       child: loading
           ? ListView(children: const [SizedBox(height: 200), Center(child: CircularProgressIndicator())])
-          : ListView(children: [
-              const NextUpBar(),
+          : ListView(controller: _sc, children: [
               Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: Text(hi, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
 
@@ -183,7 +196,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
               const SizedBox(height: 24),
             ]),
-    );
+      )),
+    ]);
   }
 }
 
