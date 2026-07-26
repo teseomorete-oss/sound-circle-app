@@ -404,44 +404,51 @@ class SongCardW extends StatelessWidget {
       );
 }
 
-/// YT-Music style "Quick picks": a horizontally-paged 3-row grid of song rows.
+/// "Quick picks": a 3-row grid of big square cover cards that scrolls
+/// horizontally (title + artist overlaid on the artwork).
 class QuickPicks extends StatelessWidget {
   final List<Song> songs;
   const QuickPicks({super.key, required this.songs});
   @override
   Widget build(BuildContext context) {
-    final pages = <List<Song>>[];
-    for (var i = 0; i < songs.length; i += 3) {
-      pages.add(songs.sublist(i, (i + 3).clamp(0, songs.length)));
-    }
+    const pad = 12.0, gap = 10.0;
     final w = MediaQuery.of(context).size.width;
+    final cell = (w - pad * 2 - gap * 2) / 3; // three columns fill the width
+    final gridH = cell * 3 + gap * 2;
     return SizedBox(
-      height: 3 * 64.0,
-      child: ListView.builder(
+      height: gridH,
+      child: GridView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        itemCount: pages.length,
-        itemBuilder: (context, pi) => SizedBox(
-          width: pages.length == 1 ? w - 20 : w * 0.86,
-          child: Column(children: pages[pi].map((s) {
-            final gi = songs.indexOf(s);
-            return Expanded(child: InkWell(
-              onTap: () => context.read<Player>().playList(songs, gi),
-              onLongPress: () => showSongMenu(context, s),
-              child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Row(children: [
-                  cover(s.cover, 48),
-                  const SizedBox(width: 10),
-                  Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                    Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+        padding: const EdgeInsets.symmetric(horizontal: pad),
+        physics: const BouncingScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3, mainAxisSpacing: gap, crossAxisSpacing: gap, childAspectRatio: 1),
+        itemCount: songs.length,
+        itemBuilder: (context, i) {
+          final s = songs[i];
+          return GestureDetector(
+            onTap: () => context.read<Player>().playList(songs, i),
+            onLongPress: () => showSongMenu(context, s),
+            child: ClipRRect(borderRadius: BorderRadius.circular(12),
+              child: Stack(fit: StackFit.expand, children: [
+                if (s.cover != null)
+                  CachedNetworkImage(imageUrl: s.cover!, fit: BoxFit.cover,
+                    placeholder: (_, __) => Container(color: surface),
+                    errorWidget: (_, __, ___) => Container(color: surface, child: const Icon(Icons.music_note)))
+                else Container(color: surface, child: const Icon(Icons.music_note)),
+                const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
+                  begin: Alignment.center, end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Colors.black87]))),
+                Positioned(left: 8, right: 8, bottom: 8, child: Column(
+                  mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Colors.white)),
+                    Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, color: Colors.white70)),
                   ])),
-                  IconButton(icon: const Icon(Icons.more_vert, size: 20), onPressed: () => showSongMenu(context, s)),
-                ]),
-              ),
-            ));
-          }).toList()),
-        ),
+              ])),
+          );
+        },
       ),
     );
   }
@@ -507,32 +514,32 @@ class _NextUpBarState extends State<NextUpBar> {
     final p = context.watch<Player>();
     final q = p.manualQueue;
     if (q.isEmpty || hidden) return const SizedBox.shrink();
-    final t = widget.shrink.clamp(0.0, 1.0);
-    // Collapse vertically + fade as the page scrolls down.
-    return ClipRect(child: Align(
-      alignment: Alignment.topCenter,
-      heightFactor: 1 - t,
-      child: Opacity(opacity: (1 - t * 1.4).clamp(0.0, 1.0), child: _bar(context, p, q)),
-    ));
+    return _bar(context, p, q, widget.shrink.clamp(0.0, 1.0));
   }
 
-  Widget _bar(BuildContext context, Player p, List<Song> q) {
+  // As the page scrolls the bar shrinks — covers get smaller and the labels &
+  // header fade out — but it never disappears; a compact thumbnail strip stays.
+  Widget _bar(BuildContext context, Player p, List<Song> q, double t) {
+    double lerp(double a, double b) => a + (b - a) * t;
+    final cs = lerp(104, 46);            // cover size
+    final listH = lerp(150, 58);         // strip height
+    final labelF = (1 - t * 2.2).clamp(0.0, 1.0);  // title/artist fade
+    final headerF = (1 - t * 1.8).clamp(0.0, 1.0); // header fade
     return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.only(bottom: 8),
       decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
-          child: Row(children: [
-            const Icon(Icons.queue_music, size: 18, color: Colors.white54),
-            const SizedBox(width: 8),
-            Text('NEXT UP · ${q.length}', style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5, color: Colors.white70)),
-            const Spacer(),
-            IconButton(iconSize: 20, visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.close), onPressed: () => setState(() => hidden = true)),
-          ])),
-        SizedBox(
-          height: 150,
+        ClipRect(child: Align(heightFactor: headerF, alignment: Alignment.topCenter,
+          child: Opacity(opacity: headerF, child: Padding(padding: const EdgeInsets.fromLTRB(14, 10, 8, 4),
+            child: Row(children: [
+              const Icon(Icons.queue_music, size: 18, color: Colors.white54),
+              const SizedBox(width: 8),
+              Text('NEXT UP · ${q.length}', style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5, color: Colors.white70)),
+              const Spacer(),
+              IconButton(iconSize: 20, visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close), onPressed: () => setState(() => hidden = true)),
+            ]))))),
+        Padding(padding: const EdgeInsets.only(bottom: 8), child: SizedBox(
+          height: listH,
           child: ReorderableListView.builder(
             scrollDirection: Axis.horizontal,
             buildDefaultDragHandles: true,
@@ -545,24 +552,27 @@ class _NextUpBarState extends State<NextUpBar> {
               return Padding(
                 key: ValueKey('nx${s.deezerId}_$i'),
                 padding: const EdgeInsets.symmetric(horizontal: 5),
-                child: SizedBox(width: 104,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                child: SizedBox(width: cs,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                     Stack(children: [
-                      GestureDetector(onTap: () => context.read<Player>().playUpNext(i), child: cover(s.cover, 104, radius: 10)),
-                      Positioned(right: 2, top: 2, child: GestureDetector(
+                      GestureDetector(onTap: () => context.read<Player>().playUpNext(i), child: cover(s.cover, cs, radius: 10)),
+                      Positioned(right: 1, top: 1, child: GestureDetector(
                         onTap: () => context.read<Player>().removeUpNext(i),
                         child: Container(decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                          padding: const EdgeInsets.all(3), child: const Icon(Icons.close, size: 16)))),
+                          padding: const EdgeInsets.all(2), child: const Icon(Icons.close, size: 13)))),
                     ]),
-                    const SizedBox(height: 4),
-                    Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-                    Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                    if (labelF > 0.02) ClipRect(child: Align(heightFactor: labelF, alignment: Alignment.topCenter,
+                      child: Opacity(opacity: labelF, child: Padding(padding: const EdgeInsets.only(top: 4),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                          Text(s.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                          Text(s.artist, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                        ]))))),
                   ]),
                 ),
               );
             },
           ),
-        ),
+        )),
       ]),
     );
   }
