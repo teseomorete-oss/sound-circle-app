@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'main.dart';
+import 'detail.dart';
 import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
@@ -69,9 +70,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     for (final s in chart) { if (seen.add(s.deezerId)) blended.add(s); }
 
-    // quick picks = recent + liked + trending, de-duplicated and shuffled a little
+    // quick picks = recent + liked + recommendations + trending (deduped) → up to 27 (3 grids)
     final qp = <Song>[]; final qpSeen = <int>{};
-    for (final s in [...lib.history.take(8), ...lib.liked.take(8), ...chart.take(12)]) {
+    for (final s in [...lib.history.take(9), ...lib.liked.take(9), ...blended.take(18), ...chart.take(18)]) {
       if (qpSeen.add(s.deezerId)) qp.add(s);
     }
 
@@ -82,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (topArtists.isEmpty) { Deezer.chartArtists().then((a) => mounted ? setState(() => topArtists = a) : null); }
       becausePlayed = results[3] as List<Song>;
       recommended = blended.isNotEmpty ? blended : chart;
-      quickPicks = qp.take(12).toList();
+      quickPicks = qp.take(27).toList();
       loading = false;
     });
   }
@@ -119,6 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final hi = '${greeting()}${settings.displayName.isNotEmpty ? ', ${settings.displayName}' : ''}';
     final mixes = _mixes(lib);
     return Column(children: [
+      const SizedBox(height: 4),
       // NEXT UP sits above the scroll and contracts as you scroll down.
       ValueListenableBuilder<double>(valueListenable: _shrink,
         builder: (_, t, __) => NextUpBar(shrink: t)),
@@ -127,17 +129,19 @@ class _HomeScreenState extends State<HomeScreen> {
       child: loading
           ? ListView(children: const [SizedBox(height: 200), Center(child: CircularProgressIndicator())])
           : ListView(controller: _sc, children: [
-              Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: Text(hi, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
+              if (settings.showGreeting)
+                Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Text(hi, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800))),
 
               // Mood chips (YT-Music style)
-              SizedBox(height: 40, child: ListView(
-                scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                children: [
-                  for (final m in const ['Chill', 'Energy', 'Focus', 'Workout', 'Party', 'Sad', 'Feel good'])
-                    Padding(padding: const EdgeInsets.only(right: 8), child: _MoodChip(mood: m)),
-                ],
-              )),
+              if (settings.moodChips)
+                SizedBox(height: 44, child: ListView(
+                  scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                  children: [
+                    for (final m in const ['Chill', 'Energy', 'Focus', 'Workout', 'Party', 'Sad', 'Feel good'])
+                      Padding(padding: const EdgeInsets.only(right: 8), child: _MoodChip(mood: m)),
+                  ],
+                )),
 
               if (settings.showQuickPicks && quickPicks.length >= 3) ...[
                 const SectionHeader('Quick picks'),
@@ -205,17 +209,27 @@ class _MoodChip extends StatelessWidget {
   final String mood;
   const _MoodChip({required this.mood});
   @override
-  Widget build(BuildContext context) => ActionChip(
-        label: Text(mood),
-        backgroundColor: const Color(0xFF1c1c28),
-        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-        onPressed: () async {
-          final messenger = ScaffoldMessenger.of(context);
-          final player = context.read<Player>();
-          messenger.showSnackBar(SnackBar(content: Text('$mood mix…'), duration: const Duration(milliseconds: 900)));
-          final songs = await Deezer.search('$mood music', limit: 40);
-          if (songs.isNotEmpty) player.playList(songs, 0);
-        },
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xFF1c1c28),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            final player = context.read<Player>();
+            messenger.showSnackBar(SnackBar(content: Text('$mood mix…'), duration: const Duration(milliseconds: 900)));
+            final songs = await Deezer.search('$mood music', limit: 40);
+            if (songs.isNotEmpty) player.playList(songs, 0);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08))),
+            child: Text(mood, style: const TextStyle(fontWeight: FontWeight.w600, height: 1.0)),
+          ),
+        ),
       );
 }
 
@@ -231,35 +245,48 @@ class _SearchScreenState extends State<SearchScreen> {
   final _focus = FocusNode();
   List<Song> songs = [];
   List<Artist> artists = [];
-  List<String> suggestions = [];
+  // structured live suggestions
+  List<Artist> sgArtists = [];
+  List<Song> sgSongs = [];
+  List<String> sgText = [];
   bool loading = false;
   bool showResults = false;
   Timer? _debounce;
   int _reqId = 0;
 
+  bool get _hasSuggestions => sgArtists.isNotEmpty || sgSongs.isNotEmpty || sgText.isNotEmpty;
+
   @override
   void dispose() { _debounce?.cancel(); _ctrl.dispose(); _focus.dispose(); super.dispose(); }
+
+  void _clearSuggestions() { sgArtists = []; sgSongs = []; sgText = []; }
 
   void _onChanged(String q) {
     _debounce?.cancel();
     final t = q.trim();
-    if (t.isEmpty) { setState(() { suggestions = []; showResults = false; songs = []; artists = []; }); return; }
+    if (t.isEmpty) { setState(() { _clearSuggestions(); showResults = false; songs = []; artists = []; }); return; }
     setState(() => showResults = false);
-    _debounce = Timer(const Duration(milliseconds: 260), () => _suggest(t));
+    _debounce = Timer(const Duration(milliseconds: 240), () => _suggest(t));
   }
 
-  // Live autocomplete: pull a few songs+artists and turn them into text suggestions.
+  // Live autocomplete: a row of artists (with photos), then songs (with covers),
+  // then plain text completions.
   Future<void> _suggest(String q) async {
     final id = ++_reqId;
-    final r = await Future.wait([Deezer.search(q, limit: 8), Deezer.searchArtists(q, limit: 4)]);
+    final r = await Future.wait([Deezer.search(q, limit: 12), Deezer.searchArtists(q, limit: 8)]);
     if (!mounted || id != _reqId) return;
-    final sg = <String>[]; final seen = <String>{};
-    for (final a in (r[1] as List<Artist>)) { if (seen.add(a.name.toLowerCase())) sg.add(a.name); }
-    for (final s in (r[0] as List<Song>)) {
-      final label = '${s.title} · ${s.artist}';
-      if (seen.add(label.toLowerCase())) sg.add(label);
+    final allSongs = r[0] as List<Song>;
+    final allArtists = r[1] as List<Artist>;
+    final seen = <String>{};
+    final text = <String>[];
+    for (final s in allSongs.skip(4)) {
+      if (seen.add(s.title.toLowerCase()) && text.length < 6) text.add(s.title);
     }
-    setState(() { suggestions = sg.take(10).toList(); });
+    setState(() {
+      sgArtists = allArtists.take(8).toList();
+      sgSongs = allSongs.take(4).toList();
+      sgText = text;
+    });
   }
 
   Future<void> _run(String q) async {
@@ -267,11 +294,43 @@ class _SearchScreenState extends State<SearchScreen> {
     if (q.isEmpty) return;
     _focus.unfocus();
     _ctrl.text = q;
-    setState(() { loading = true; showResults = true; suggestions = []; });
+    setState(() { loading = true; showResults = true; _clearSuggestions(); });
     final r = await Future.wait([Deezer.search(q, limit: 40), Deezer.searchArtists(q)]);
     if (!mounted) return;
     setState(() { songs = r[0] as List<Song>; artists = r[1] as List<Artist>; loading = false; });
   }
+
+  Widget _suggestionsView() => ListView(children: [
+        if (sgArtists.isNotEmpty) ...[
+          const Padding(padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+            child: Text('Artists', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white70))),
+          SizedBox(height: 116, child: ListView(scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: sgArtists.map((a) => GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: a.id, name: a.name))),
+              child: SizedBox(width: 84, child: Column(children: [
+                cover(a.picture, 68, radius: 34, icon: Icons.person),
+                const SizedBox(height: 4),
+                Text(a.name, maxLines: 2, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11)),
+              ])),
+            )).toList())),
+        ],
+        if (sgSongs.isNotEmpty) ...[
+          const Padding(padding: EdgeInsets.fromLTRB(16, 10, 16, 2),
+            child: Text('Songs', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white70))),
+          ...sgSongs.asMap().entries.map((e) => SongTile(song: e.value, queue: sgSongs, index: e.key)),
+        ],
+        if (sgText.isNotEmpty) ...[
+          const Divider(height: 12),
+          ...sgText.map((t) => ListTile(
+            dense: true,
+            leading: const Icon(Icons.search, size: 20, color: Colors.white54),
+            title: Text(t, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.north_west, size: 16, color: Colors.white38),
+            onTap: () => _run(t))),
+        ],
+      ]);
 
   @override
   Widget build(BuildContext context) {
@@ -291,14 +350,8 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
       if (loading) const Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator()),
       Expanded(
-        child: (!showResults && suggestions.isNotEmpty)
-            ? ListView(children: suggestions.map((sg) => ListTile(
-                dense: true,
-                leading: const Icon(Icons.search, size: 20, color: Colors.white54),
-                title: Text(sg, maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: const Icon(Icons.north_west, size: 16, color: Colors.white38),
-                onTap: () => _run(sg.split(' · ').first),
-              )).toList())
+        child: (!showResults && _hasSuggestions)
+            ? _suggestionsView()
             : ListView(children: [
                 if (artists.isNotEmpty) ...[
                   const SectionHeader('Artists'),

@@ -90,24 +90,34 @@ class _RootPageState extends State<RootPage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watch<Settings>();
+    final accent = s.accentColors[0];
+    final p = context.watch<Player>();
+    final hasQueue = p.hasManualQueue && s.queueBarShow;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        flexibleSpace: Container(decoration: BoxDecoration(gradient: LinearGradient(
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          colors: [Color.lerp(s.bg, accent, 0.18)!, s.bg]))),
         title: Row(children: [
-          Icon(Icons.graphic_eq, color: context.watch<Settings>().accentColors[0]),
+          Icon(Icons.graphic_eq, color: accent),
           const SizedBox(width: 8),
-          Text('Sound Circle', style: TextStyle(fontWeight: FontWeight.w800, color: context.watch<Settings>().accentColors[0])),
+          Text('Sound Circle', style: TextStyle(fontWeight: FontWeight.w800, color: accent)),
         ]),
         actions: [
-          if (context.watch<Player>().current != null)
+          if (hasQueue)
             IconButton(
-              tooltip: 'Queue',
+              tooltip: s.queueBarOpen ? 'Hide queue bar' : 'Show queue bar',
               icon: Badge(
-                isLabelVisible: context.watch<Player>().hasManualQueue,
-                label: Text('${context.watch<Player>().manualQueue.length}'),
-                child: const Icon(Icons.queue_music),
+                isLabelVisible: !s.queueBarOpen,
+                label: Text('${p.manualQueue.length}'),
+                child: Icon(s.queueBarOpen ? Icons.playlist_remove : Icons.queue_music),
               ),
-              onPressed: () => showQueue(context)),
+              onPressed: () => s.update(() => s.queueBarOpen = !s.queueBarOpen)),
           IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
         ],
       ),

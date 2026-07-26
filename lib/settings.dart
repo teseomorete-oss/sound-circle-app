@@ -43,6 +43,20 @@ class Settings extends ChangeNotifier {
   bool queueExpands = true;     // drag to contract/expand vs fixed height
   bool queueShowTitles = true;  // show song titles (vs compact art-only)
 
+  // NEXT UP bar (on Home)
+  bool queueBarShow = true;     // show the NEXT UP strip at all
+  bool queueBarOpen = true;     // currently expanded (toggled by the top-bar button)
+  bool queueBarShrink = true;   // contract as you scroll down
+  bool queueBarArtist = true;   // show artist under the title
+  String queueBarSize = 'M';    // S / M / L cover size
+
+  // Home extras
+  bool showGreeting = true;
+  bool moodChips = true;
+  bool quickPicksSnap = true;   // snap between 3x3 grids
+
+  double get queueCover => queueBarSize == 'S' ? 84 : queueBarSize == 'L' ? 128 : 104;
+
   SharedPreferences? _prefs;
 
   List<Color> get accentColors => accents[accent] ?? accents['purple']!;
@@ -73,6 +87,14 @@ class Settings extends ChangeNotifier {
         bigPlayerArt = b('bigPlayerArt', bigPlayerArt);
         queueExpands = b('queueExpands', queueExpands);
         queueShowTitles = b('queueShowTitles', queueShowTitles);
+        queueBarShow = b('queueBarShow', queueBarShow);
+        queueBarOpen = b('queueBarOpen', queueBarOpen);
+        queueBarShrink = b('queueBarShrink', queueBarShrink);
+        queueBarArtist = b('queueBarArtist', queueBarArtist);
+        queueBarSize = j['queueBarSize'] ?? queueBarSize;
+        showGreeting = b('showGreeting', showGreeting);
+        moodChips = b('moodChips', moodChips);
+        quickPicksSnap = b('quickPicksSnap', quickPicksSnap);
       } catch (_) {}
     }
     notifyListeners();
@@ -86,6 +108,9 @@ class Settings extends ChangeNotifier {
       'showDiscover': showDiscover, 'showPlaylistsHome': showPlaylistsHome, 'showDownloadsHome': showDownloadsHome,
       'scrollingTitles': scrollingTitles, 'bigPlayerArt': bigPlayerArt,
       'queueExpands': queueExpands, 'queueShowTitles': queueShowTitles,
+      'queueBarShow': queueBarShow, 'queueBarOpen': queueBarOpen, 'queueBarShrink': queueBarShrink,
+      'queueBarArtist': queueBarArtist, 'queueBarSize': queueBarSize,
+      'showGreeting': showGreeting, 'moodChips': moodChips, 'quickPicksSnap': quickPicksSnap,
     }));
     notifyListeners();
   }

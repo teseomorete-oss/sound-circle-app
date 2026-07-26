@@ -52,13 +52,41 @@ class SettingsScreen extends StatelessWidget {
         SwitchListTile(title: const Text('Autoplay radio'), subtitle: const Text('Keep playing similar songs when the queue ends'),
           value: s.autoplay, onChanged: (v) { s.update(() => s.autoplay = v); player.autoplay = v; }),
 
-        _h('Queue'),
+        _h('Queue sheet'),
         SwitchListTile(title: const Text('Expandable queue'), subtitle: const Text('Drag to grow/shrink while scrolling'),
           value: s.queueExpands, onChanged: (v) => s.update(() => s.queueExpands = v)),
         SwitchListTile(title: const Text('Show titles in queue'), subtitle: const Text('Off = compact art-only rows'),
           value: s.queueShowTitles, onChanged: (v) => s.update(() => s.queueShowTitles = v)),
 
+        _h('NEXT UP bar (home)'),
+        SwitchListTile(title: const Text('Show queue bar'), subtitle: const Text('The NEXT UP strip on Home'),
+          value: s.queueBarShow, onChanged: (v) => s.update(() => s.queueBarShow = v)),
+        SwitchListTile(title: const Text('Shrink on scroll'), subtitle: const Text('Contract to thumbnails as you scroll'),
+          value: s.queueBarShrink, onChanged: (v) => s.update(() => s.queueBarShrink = v)),
+        SwitchListTile(title: const Text('Show artist'), subtitle: const Text('Artist name under each title'),
+          value: s.queueBarArtist, onChanged: (v) => s.update(() => s.queueBarArtist = v)),
+        ListTile(
+          title: const Text('Cover size'),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: ['S', 'M', 'L'].map((k) {
+            final on = s.queueBarSize == k;
+            return Padding(padding: const EdgeInsets.only(left: 6), child: GestureDetector(
+              onTap: () => s.update(() => s.queueBarSize = k),
+              child: Container(width: 40, height: 34, alignment: Alignment.center,
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
+                  gradient: on ? LinearGradient(colors: s.accentColors) : null,
+                  color: on ? null : const Color(0xFF23232f)),
+                child: Text(k, style: TextStyle(fontWeight: FontWeight.w700, color: on ? Colors.white : Colors.white70))),
+            ));
+          }).toList()),
+        ),
+
         _h('Home feed'),
+        SwitchListTile(title: const Text('Greeting'), subtitle: const Text('“Good afternoon” header'),
+          value: s.showGreeting, onChanged: (v) => s.update(() => s.showGreeting = v)),
+        SwitchListTile(title: const Text('Mood chips'), subtitle: const Text('Chill · Energy · Focus …'),
+          value: s.moodChips, onChanged: (v) => s.update(() => s.moodChips = v)),
+        SwitchListTile(title: const Text('Snap quick picks'), subtitle: const Text('Swipe one 3×3 grid at a time'),
+          value: s.quickPicksSnap, onChanged: (v) => s.update(() => s.quickPicksSnap = v)),
         SwitchListTile(title: const Text('Quick picks'), subtitle: const Text('Grid of recent & liked songs'),
           value: s.showQuickPicks, onChanged: (v) => s.update(() => s.showQuickPicks = v)),
         SwitchListTile(title: const Text('Made for you'), subtitle: const Text('Personal recommendation row'),
