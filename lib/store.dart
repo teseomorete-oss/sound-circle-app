@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'deezer.dart';
 
@@ -29,6 +31,55 @@ class Library extends ChangeNotifier {
   final Map<int, String> _dlPaths = {};   // deezerId -> local file path
 
   SharedPreferences? _prefs;
+
+  // ---- Cloud sync (Firestore) ----
+  DocumentReference<Map<String, dynamic>>? _cloud;
+  Timer? _cloudDebounce;
+  bool syncing = false;
+
+  /// Called when the signed-in user changes. Pulls their library from the cloud
+  /// (or seeds the cloud from local on first sign-in), then keeps it in sync.
+  Future<void> bindUser(String? uid) async {
+    _cloudDebounce?.cancel();
+    if (uid == null) { _cloud = null; return; } // guest / logged out → local only
+    _cloud = FirebaseFirestore.instance.collection('users').doc(uid);
+    syncing = true; notifyListeners();
+    try {
+      final data = (await _cloud!.get()).data();
+      if (data != null && (data['liked'] != null || data['playlists'] != null)) {
+        // Cloud is the source of truth — replace the local library with it.
+        List<Map<String, dynamic>> ml(String k) =>
+            (((data[k] as List?) ?? []).map((e) => (e as Map).cast<String, dynamic>())).toList();
+        liked..clear()..addAll(ml('liked').map(Song.fromJson));
+        followed..clear()..addAll(ml('followed').map(Artist.fromJson));
+        history..clear()..addAll(ml('history').map(Song.fromJson));
+        playlists..clear()..addAll(ml('playlists').map(Playlist.fromJson));
+        _save('liked', liked.map((e) => e.toJson()).toList());
+        _save('followed', followed.map((e) => e.toJson()).toList());
+        _save('history', history.map((e) => e.toJson()).toList());
+        _save('playlists', playlists.map((e) => e.toJson()).toList());
+      } else {
+        _pushCloud(); // first sign-in: seed the cloud from whatever is local
+      }
+    } catch (_) {}
+    syncing = false; notifyListeners();
+  }
+
+  void _scheduleCloud() {
+    if (_cloud == null) return;
+    _cloudDebounce?.cancel();
+    _cloudDebounce = Timer(const Duration(milliseconds: 1200), _pushCloud);
+  }
+
+  void _pushCloud() {
+    _cloud?.set({
+      'liked': liked.map((e) => e.toJson()).toList(),
+      'followed': followed.map((e) => e.toJson()).toList(),
+      'history': history.map((e) => e.toJson()).toList(),
+      'playlists': playlists.map((e) => e.toJson()).toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -67,7 +118,10 @@ class Library extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void _save(String key, List<dynamic> data) => _prefs?.setString(key, jsonEncode(data));
+  void _save(String key, List<dynamic> data) {
+    _prefs?.setString(key, jsonEncode(data));
+    if (key != 'downloads') _scheduleCloud(); // downloads are per-device (local files)
+  }
 
   // ---- Likes ----
   bool isLiked(int deezerId) => liked.any((s) => s.deezerId == deezerId);

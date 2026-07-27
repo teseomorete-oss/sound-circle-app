@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "192502203744",
+    "project_id": "sound-circle-9cd53",
+    "storage_bucket": "sound-circle-9cd53.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:192502203744:android:f1e25f81b5affaa7d50a05",
+        "android_client_info": {
+          "package_name": "com.soundcircle.soundcircle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdCnuy4NsIlDGYsTtc2XmQJ4nChcQGaGo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

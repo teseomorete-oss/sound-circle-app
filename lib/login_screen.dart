@@ -16,16 +16,19 @@ class _LoginScreenState extends State<LoginScreen> {
   final _pass = TextEditingController();
   String? error;
   bool _obscure = true;
+  bool _busy = false;
 
   @override
   void dispose() { _email.dispose(); _name.dispose(); _pass.dispose(); super.dispose(); }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_busy) return;
     final auth = context.read<Auth>();
+    setState(() { _busy = true; error = null; });
     final err = signUp
-        ? auth.signUp(_email.text, _name.text, _pass.text)
-        : auth.logIn(_email.text, _pass.text);
-    setState(() => error = err);
+        ? await auth.signUp(_email.text, _name.text, _pass.text)
+        : await auth.logIn(_email.text, _pass.text);
+    if (mounted) setState(() { error = err; _busy = false; });
   }
 
   @override
@@ -66,8 +69,10 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 20),
             FilledButton(
               style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15), backgroundColor: accent[0]),
-              onPressed: _submit,
-              child: Text(signUp ? 'Sign up' : 'Log in', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+              onPressed: _busy ? null : _submit,
+              child: _busy
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text(signUp ? 'Sign up' : 'Log in', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
             const SizedBox(height: 10),
             TextButton(
               onPressed: () => setState(() { signUp = !signUp; error = null; }),
@@ -77,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
               onPressed: () => context.read<Auth>().continueAsGuest(),
               child: const Text('Continue as guest', style: TextStyle(color: Colors.white60))),
             const SizedBox(height: 6),
-            const Text('Accounts are stored on this device for now.',
+            const Text('Your library syncs across devices.',
               textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Colors.white30)),
           ]),
         ))),
