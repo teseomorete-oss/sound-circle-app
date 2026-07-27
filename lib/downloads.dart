@@ -28,6 +28,19 @@ class Downloads {
     }
   }
 
+  /// Re-download a list of songs one by one, reporting progress.
+  static Future<int> restoreAll(Player player, Library lib, List<Song> songs,
+      {void Function(int done, int total, Song current)? onProgress,
+      bool Function()? cancelled}) async {
+    var ok = 0;
+    for (var i = 0; i < songs.length; i++) {
+      if (cancelled?.call() ?? false) break;
+      onProgress?.call(i, songs.length, songs[i]);
+      if (await download(player, lib, songs[i])) ok++;
+    }
+    return ok;
+  }
+
   static Future<void> delete(Library lib, Song s) async {
     final p = lib.downloadPath(s.deezerId);
     if (p != null) { try { await File(p).delete(); } catch (_) {} }

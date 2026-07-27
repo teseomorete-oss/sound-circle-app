@@ -405,6 +405,66 @@ class _CoverPopoutState extends State<_CoverPopout> with SingleTickerProviderSta
   }
 }
 
+/// After signing in on a new device, offer to re-download the songs this
+/// account had saved offline elsewhere.
+Future<void> promptRestoreDownloads(BuildContext context) async {
+  final lib = context.read<Library>();
+  final player = context.read<Player>();
+  final songs = List<Song>.from(lib.restorable);
+  if (songs.isEmpty) return;
+  lib.clearRestorable(); // only ask once per sign-in
+
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      backgroundColor: const Color(0xFF1a1a2b),
+      icon: const Icon(Icons.cloud_download_outlined, size: 32),
+      title: const Text('Restore your downloads?'),
+      content: Text(
+        songs.length == 1
+          ? 'You had 1 song saved for offline listening on another device. Download it here too?'
+          : 'You had ${songs.length} songs saved for offline listening on another device. Download them here too?',
+        style: const TextStyle(color: Colors.white70)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Download')),
+      ],
+    ),
+  );
+  if (go != true || !context.mounted) return;
+
+  var cancel = false;
+  final progress = ValueNotifier<(int, int, String)>((0, songs.length, ''));
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      backgroundColor: const Color(0xFF1a1a2b),
+      title: const Text('Downloading…'),
+      content: ValueListenableBuilder<(int, int, String)>(
+        valueListenable: progress,
+        builder: (_, v, __) => Column(mainAxisSize: MainAxisSize.min, children: [
+          LinearProgressIndicator(value: v.$2 == 0 ? null : v.$1 / v.$2),
+          const SizedBox(height: 12),
+          Text('${v.$1} of ${v.$2}', style: const TextStyle(fontWeight: FontWeight.w600)),
+          if (v.$3.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4),
+            child: Text(v.$3, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white54, fontSize: 12))),
+        ]),
+      ),
+      actions: [TextButton(onPressed: () { cancel = true; Navigator.pop(context); }, child: const Text('Stop'))],
+    ),
+  );
+
+  final ok = await Downloads.restoreAll(player, lib, songs,
+    cancelled: () => cancel,
+    onProgress: (done, total, s) => progress.value = (done, total, s.title));
+  progress.dispose();
+  if (!context.mounted) return;
+  if (!cancel) Navigator.of(context, rootNavigator: true).pop(); // close progress
+  showCoverPopout(context, message: '$ok of ${songs.length} downloaded', icon: Icons.download_done);
+}
+
 String fanCount(int? n) {
   if (n == null) return '';
   if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(n >= 10000000 ? 0 : 1)}M';

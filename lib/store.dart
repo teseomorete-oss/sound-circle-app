@@ -37,6 +37,11 @@ class Library extends ChangeNotifier {
   Timer? _cloudDebounce;
   bool syncing = false;
 
+  /// Songs this account had downloaded on another device but that aren't saved
+  /// on this one yet — offered as a one-tap restore after signing in.
+  final List<Song> restorable = [];
+  void clearRestorable() { restorable.clear(); notifyListeners(); }
+
   /// Called when the signed-in user changes. Pulls their library from the cloud
   /// (or seeds the cloud from local on first sign-in), then keeps it in sync.
   Future<void> bindUser(String? uid) async {
@@ -58,6 +63,10 @@ class Library extends ChangeNotifier {
         _save('followed', followed.map((e) => e.toJson()).toList());
         _save('history', history.map((e) => e.toJson()).toList());
         _save('playlists', playlists.map((e) => e.toJson()).toList());
+        // Offer to re-download anything this account had saved offline elsewhere.
+        restorable
+          ..clear()
+          ..addAll(ml('downloads').map(Song.fromJson).where((s) => !_dlPaths.containsKey(s.deezerId)));
       } else {
         _pushCloud(); // first sign-in: seed the cloud from whatever is local
       }
@@ -77,6 +86,8 @@ class Library extends ChangeNotifier {
       'followed': followed.map((e) => e.toJson()).toList(),
       'history': history.map((e) => e.toJson()).toList(),
       'playlists': playlists.map((e) => e.toJson()).toList(),
+      // Just the song list — the audio files themselves stay on each device.
+      'downloads': downloads.map((e) => e.toJson()).toList(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -120,7 +131,7 @@ class Library extends ChangeNotifier {
 
   void _save(String key, List<dynamic> data) {
     _prefs?.setString(key, jsonEncode(data));
-    if (key != 'downloads') _scheduleCloud(); // downloads are per-device (local files)
+    _scheduleCloud(); // for downloads only the song list travels, not the files
   }
 
   // ---- Likes ----
