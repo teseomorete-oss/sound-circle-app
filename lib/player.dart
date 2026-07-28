@@ -212,6 +212,11 @@ class Player extends ChangeNotifier {
   AudioSource _src(Song s, Uri url) => AudioSource.uri(url, tag: MediaItem(
         id: s.deezerId.toString(), title: s.title, artist: s.artist, album: s.album,
         artUri: s.cover != null ? Uri.parse(s.cover!) : null,
+        // Duration lets the lock screen draw a seek bar / remaining time.
+        duration: s.duration != null ? Duration(seconds: s.duration!) : null,
+        displayTitle: s.title,
+        displaySubtitle: s.artist,
+        displayDescription: s.album,
       ));
 
   Future<void> playList(List<Song> songs, int index) async {
