@@ -140,11 +140,17 @@ class Player extends ChangeNotifier {
     final artistL = s.artist.toLowerCase();
     // significant words of the title (ignore short filler)
     final titleWords = titleL.split(RegExp(r'[^a-z0-9áéíóúñ]+')).where((w) => w.length > 2).toSet();
+    final cands = results.take(8).toList();
+    // The canonical upload dwarfs re-uploads in views — the strongest signal
+    // that we found the real track and not a lyric/karaoke copy.
+    var maxViews = 1;
+    for (final v in cands) { if (v.engagement.viewCount > maxViews) maxViews = v.engagement.viewCount; }
+
     Video? best; double bestScore = -1e9;
-    for (final v in results.take(7)) {
+    for (final v in cands) {
       final vt = v.title.toLowerCase();
       final va = v.author.toLowerCase();
-      double score = 0;
+      double score = 6 * (v.engagement.viewCount / maxViews);
       // title word overlap
       if (titleWords.isNotEmpty) {
         final hit = titleWords.where((w) => vt.contains(w)).length / titleWords.length;
@@ -156,18 +162,20 @@ class Player extends ChangeNotifier {
       if (s.duration != null && d != null && d > 0) {
         final diff = (d - s.duration!).abs();
         if (diff <= 2) { score += 5; }
-        else if (diff <= 6) { score += 3; }
+        else if (diff <= 6) { score += 4; }
         else if (diff <= 15) { score += 1; }
-        else if (diff > 40) { score -= 4; }
+        else if (diff > 40) { score -= 6; }
       }
       // Hard-reject karaoke/instrumental/cover style uploads — these often match
       // the duration perfectly, so a small penalty wasn't enough to beat them.
       for (final bad in const ['karaoke', 'instrumental', 'backing track', 'sin voz', 'pista']) {
         if (vt.contains(bad) && !titleL.contains(bad)) score -= 25;
       }
-      for (final bad in const ['live', 'en vivo', 'cover', 'remix', 'sped up', 'slowed',
-                               'reverb', 'mashup', '8d', 'tutorial', 'reaction', 'parodia']) {
-        if (vt.contains(bad) && !titleL.contains(bad)) score -= 6;
+      // Lyric videos, live cuts and re-encodes are not the track either.
+      for (final bad in const ['live', 'en vivo', 'cover', 'remix', 'sped up', 'slowed', 'reverb',
+                               'mashup', '8d', 'letra', 'lyrics', 'lyric', 'tutorial', 'reaction',
+                               'parodia', 'edit', '1080p', 'clean version']) {
+        if (vt.contains(bad) && !titleL.contains(bad)) score -= 7;
       }
       // Prefer official uploads: artist topic channels and VEVO are the real thing.
       if (va.contains('topic') || va.contains('vevo') || va.contains('official')) score += 4;

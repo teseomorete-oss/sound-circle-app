@@ -182,7 +182,7 @@ void showSongMenu(BuildContext context, Song song) {
         break;
       case 'album': if (song.albumId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: song.albumId!, title: song.album ?? ''))); break;
       case 'artist': if (song.artistId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: song.artistId!, name: song.artist))); break;
-      default: messenger.showSnackBar(const SnackBar(content: Text('Noted'), duration: Duration(milliseconds: 900)));
+      default: toast(context, 'Noted');
     }
   }
 
@@ -284,8 +284,12 @@ Future<String?> _promptName(BuildContext context, {String initial = ''}) {
   );
 }
 
-void _toast(BuildContext context, String msg) =>
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(milliseconds: 1100)));
+/// The app's standard notification — a dynamic tab that slides out from the
+/// right edge. Replaces Flutter's plain white SnackBar everywhere.
+void toast(BuildContext context, String msg, {IconData icon = Icons.check_circle, String? cover}) =>
+    showCoverPopout(context, message: msg, icon: icon, cover: cover);
+
+void _toast(BuildContext context, String msg) => toast(context, msg);
 
 Future<String?> promptName(BuildContext context, {String initial = ''}) => _promptName(context, initial: initial);
 
@@ -626,9 +630,9 @@ class MixCard extends StatelessWidget {
         onTap: () async {
           final messenger = ScaffoldMessenger.of(context);
           final player = context.read<Player>();
-          messenger.showSnackBar(SnackBar(content: Text('Starting $title…'), duration: const Duration(milliseconds: 1000)));
+          toast(context, 'Starting $title', icon: Icons.play_arrow, cover: cover);
           final songs = await resolve();
-          if (songs.isEmpty) { messenger.showSnackBar(const SnackBar(content: Text('Nothing to play'), duration: Duration(milliseconds: 1000))); return; }
+          if (songs.isEmpty) { if (context.mounted) toast(context, 'Nothing to play', icon: Icons.error_outline); return; }
           player.playList(songs, 0);
         },
         child: Container(

@@ -5,6 +5,9 @@ import 'store.dart';
 import 'player.dart';
 import 'auth.dart';
 import 'remote_config.dart';
+import 'feedback.dart';
+import 'widgets.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -117,6 +120,18 @@ class SettingsScreen extends StatelessWidget {
         _h('Song menu · options'),
         _chips(context, allMenuActions.keys.toList(), s.menuOptions, (list) => s.update(() => s.menuOptions = list)),
 
+        _h('Feedback'),
+        ListTile(
+          leading: Icon(Icons.lightbulb_outline, color: s.accentColors[0]),
+          title: const Text('Send feedback or an idea'),
+          subtitle: const Text('Goes straight to the developer'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => showFeedbackSheet(context),
+        ),
+
+        _h('Notifications'),
+        const _NotificationTile(),
+
         _h('Data'),
         ListTile(title: const Text('Clear listening history'),
           trailing: const Icon(Icons.delete_outline), onTap: () { lib.clearHistory(); }),
@@ -132,8 +147,7 @@ class SettingsScreen extends StatelessWidget {
               final u = await RemoteConfig.check();
               if (!context.mounted) return;
               if (u == null) {
-                messenger.showSnackBar(const SnackBar(
-                  content: Text("You're on the latest version"), duration: Duration(milliseconds: 1400)));
+                toast(context, "You're on the latest version");
               } else {
                 showUpdateDialog(context, u);
               }
@@ -169,6 +183,56 @@ class SettingsScreen extends StatelessWidget {
           ),
         );
       }).toList()),
+    );
+  }
+}
+
+/// Shows whether the lock-screen / pull-down player is allowed to appear, with
+/// a shortcut into the system settings when it isn't.
+class _NotificationTile extends StatefulWidget {
+  const _NotificationTile();
+  @override
+  State<_NotificationTile> createState() => _NotificationTileState();
+}
+
+class _NotificationTileState extends State<_NotificationTile> with WidgetsBindingObserver {
+  bool? granted;
+
+  @override
+  void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); _check(); }
+  @override
+  void dispose() { WidgetsBinding.instance.removeObserver(this); super.dispose(); }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _check(); // re-check after returning from settings
+  }
+
+  Future<void> _check() async {
+    try {
+      final ok = await Permission.notification.isGranted;
+      if (mounted) setState(() => granted = ok);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = granted == true;
+    return ListTile(
+      leading: Icon(ok ? Icons.check_circle : Icons.error_outline,
+        color: ok ? const Color(0xFF22C55E) : Colors.orangeAccent),
+      title: const Text('Lock screen player'),
+      subtitle: Text(granted == null
+        ? 'Checking…'
+        : ok
+          ? 'Enabled — controls show on the lock screen and pull-down'
+          : 'Blocked. Notifications are off, so the player can\'t appear.'),
+      trailing: ok ? null : FilledButton(
+        onPressed: () async {
+          final res = await Permission.notification.request();
+          if (!res.isGranted) await openAppSettings();
+          _check();
+        },
+        child: const Text('Enable')),
     );
   }
 }

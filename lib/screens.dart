@@ -441,7 +441,7 @@ class _MoodChip extends StatelessWidget {
           onTap: () async {
             final messenger = ScaffoldMessenger.of(context);
             final player = context.read<Player>();
-            messenger.showSnackBar(SnackBar(content: Text('$mood mix…'), duration: const Duration(milliseconds: 900)));
+            toast(context, '$mood mix', icon: Icons.graphic_eq);
             final songs = await Deezer.search('$mood music', limit: 40);
             if (songs.isNotEmpty) player.playList(songs, 0);
           },
