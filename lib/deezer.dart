@@ -103,7 +103,35 @@ class Deezer {
   static Future<List<Song>> search(String q, {int limit = 40}) => _tracks('/search?q=${Uri.encodeComponent(q)}&limit=$limit');
   static Future<Song?> searchOne(String q) async { final r = await search(q, limit: 1); return r.isEmpty ? null : r.first; }
   static Future<List<Song>> artistRadio(int artistId, {int limit = 25}) => _tracks('/artist/$artistId/radio?limit=$limit');
-  static Future<List<Song>> artistTop(int artistId, {int limit = 25}) => _tracks('/artist/$artistId/top?limit=$limit');
+  /// An artist's popular tracks. Deezer's /top is thin for some artists
+  /// (Dr. Dre returns a single song), so top up from their albums and a name
+  /// search, de-duplicated, to always show a proper list.
+  static Future<List<Song>> artistTop(int artistId, {int limit = 25}) async {
+    final top = await _tracks('/artist/$artistId/top?limit=$limit');
+    if (top.length >= 8) return top;
+
+    final out = <Song>[...top];
+    final seen = <int>{...top.map((s) => s.deezerId)};
+    final titles = <String>{...top.map((s) => s.title.toLowerCase())};
+    void add(Iterable<Song> songs) {
+      for (final s in songs) {
+        if (s.artistId != artistId && out.isNotEmpty) continue; // keep it their music
+        if (seen.add(s.deezerId) && titles.add(s.title.toLowerCase())) out.add(s);
+      }
+    }
+
+    try {
+      final artistName = top.isNotEmpty ? top.first.artist : (await artist(artistId))?.name;
+      // Their albums, newest first — the reliable source of an artist's catalogue.
+      final albums = await artistAlbums(artistId, limit: 6);
+      final lists = await Future.wait(albums.map((a) => albumTracks(a.id)));
+      for (final l in lists) { add(l); if (out.length >= limit) break; }
+      if (out.length < limit && artistName != null && artistName.isNotEmpty) {
+        add(await search('$artistName', limit: 40));
+      }
+    } catch (_) {}
+    return out.take(limit).toList();
+  }
 
   static Future<List<Artist>> searchArtists(String q, {int limit = 8}) async {
     try {

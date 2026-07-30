@@ -287,34 +287,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                 curve: Curves.easeOut,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOut,
-                    style: TextStyle(
-                      fontSize: 27, height: 1.2,
-                      fontWeight: FontWeight.w800,
-                      color: on ? activeColor : (passed ? Colors.white54 : Colors.white38)),
-                    child: Text(synced[i].text.isEmpty ? (showNotes ? '' : '♪') : synced[i].text, textAlign: TextAlign.left),
-                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOut,
+                      style: TextStyle(
+                        fontSize: 27, height: 1.2,
+                        fontWeight: FontWeight.w800,
+                        color: on ? activeColor : (passed ? Colors.white54 : Colors.white38)),
+                      child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
+                    ),
+                    // Long instrumental after this line → notes get their own space.
+                    if (showNotes && on)
+                      Padding(padding: const EdgeInsets.only(top: 10), child: BouncingNotes(color: activeColor)),
+                  ]),
                 ),
               ),
             );
           },
         );
-        if (!showNotes) return list;
-        // Put the notes exactly where the next lyric will appear — just under the
-        // last sung line — instead of floating in the middle of the screen.
-        double notesTop = padTop;
-        if (_lineTops != null && active >= 0 && active < _lineTops!.length) {
-          notesTop = padTop + _lineTops![active] + _lineHeights![active]
-              - (_scroll.hasClients ? _scroll.offset : 0);
+        // During the intro the notes sit ABOVE the first line, in their own row,
+        // so they never overlap the text. (Mid-song gaps render them inside the
+        // active line's item — see the itemBuilder — which reserves real space.)
+        if (showNotes && active < 0) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(padding: const EdgeInsets.fromLTRB(2, 14, 0, 6), child: BouncingNotes(color: activeColor)),
+            Expanded(child: list),
+          ]);
         }
-        notesTop = notesTop.clamp(0.0, box.maxHeight - 60);
-        return Stack(children: [
-          list,
-          Positioned(left: 2, top: notesTop,
-            child: IgnorePointer(child: BouncingNotes(color: activeColor))),
-        ]);
+        return list;
       });
     }
     if (lyrics!.plain != null && lyrics!.plain!.trim().isNotEmpty) {

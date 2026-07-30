@@ -160,10 +160,17 @@ class Player extends ChangeNotifier {
         else if (diff <= 15) { score += 1; }
         else if (diff > 40) { score -= 4; }
       }
-      // avoid obviously-wrong variants unless the track itself is one
-      for (final bad in const ['live', 'cover', 'remix', 'sped up', 'slowed', 'reverb', 'karaoke', 'instrumental', 'mashup', '8d']) {
-        if (vt.contains(bad) && !titleL.contains(bad)) score -= 2;
+      // Hard-reject karaoke/instrumental/cover style uploads — these often match
+      // the duration perfectly, so a small penalty wasn't enough to beat them.
+      for (final bad in const ['karaoke', 'instrumental', 'backing track', 'sin voz', 'pista']) {
+        if (vt.contains(bad) && !titleL.contains(bad)) score -= 25;
       }
+      for (final bad in const ['live', 'en vivo', 'cover', 'remix', 'sped up', 'slowed',
+                               'reverb', 'mashup', '8d', 'tutorial', 'reaction', 'parodia']) {
+        if (vt.contains(bad) && !titleL.contains(bad)) score -= 6;
+      }
+      // Prefer official uploads: artist topic channels and VEVO are the real thing.
+      if (va.contains('topic') || va.contains('vevo') || va.contains('official')) score += 4;
       if (score > bestScore) { bestScore = score; best = v; }
     }
     return best ?? results.first;

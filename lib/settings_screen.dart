@@ -4,6 +4,7 @@ import 'settings.dart';
 import 'store.dart';
 import 'player.dart';
 import 'auth.dart';
+import 'remote_config.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -119,8 +120,27 @@ class SettingsScreen extends StatelessWidget {
         _h('Data'),
         ListTile(title: const Text('Clear listening history'),
           trailing: const Icon(Icons.delete_outline), onTap: () { lib.clearHistory(); }),
-        const SizedBox(height: 20),
-        const Center(child: Text('Sound Circle · native', style: TextStyle(color: Colors.white38, fontSize: 12))),
+        _h('About'),
+        ListTile(
+          leading: Icon(Icons.graphic_eq, color: s.accentColors[0]),
+          title: const Text('Sound Circle'),
+          subtitle: Text('Version ${RemoteConfig.currentVersion} (build ${RemoteConfig.currentBuild})'),
+          trailing: TextButton(
+            child: const Text('Check'),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final u = await RemoteConfig.check();
+              if (!context.mounted) return;
+              if (u == null) {
+                messenger.showSnackBar(const SnackBar(
+                  content: Text("You're on the latest version"), duration: Duration(milliseconds: 1400)));
+              } else {
+                showUpdateDialog(context, u);
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
       ]),
     );
   }
