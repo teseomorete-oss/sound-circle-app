@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- These drawables are resolved by name at runtime by the media notification,
+     so the resource shrinker cannot see the references. Keep them explicitly. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification,@drawable/audio_service_*,@drawable/*media*"
+    tools:shrinkMode="safe" />

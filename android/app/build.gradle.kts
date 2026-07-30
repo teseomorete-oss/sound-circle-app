@@ -32,6 +32,12 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // The media notification looks its drawables up by NAME at runtime, so
+            // the shrinker can't see the references and strips them — which made
+            // audio_service throw "must specify an icon resource id" and killed the
+            // lock-screen / pull-down player in release builds only.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
