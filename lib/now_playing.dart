@@ -56,6 +56,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     if (_lyricsForId == s.deezerId) return;
     _lyricsForId = s.deezerId;
     lyrics = null;
+    _scrolledTo = -2; // new song → re-anchor the scroll
+    if (_scroll.hasClients) _scroll.jumpTo(0);
     final l = await LyricsApi.fetch(s);
     if (mounted && _lyricsForId == s.deezerId) setState(() => lyrics = l);
   }
@@ -63,6 +65,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   // Measured line geometry so we can smoothly centre even off-screen lines.
   List<double>? _lineTops;
   List<double>? _lineHeights;
+  int _scrolledTo = -2; // last line we scrolled to (-2 = never)
   double? _measuredWidth;
   int? _measuredForId;
 
@@ -237,17 +240,29 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
           _measure(box.maxWidth, synced);
           _measuredForId = _lyricsForId; _measuredWidth = box.maxWidth;
         }
-        final pad = box.maxHeight * 0.42; // lets first & last lines reach the middle
-        // Centre the active line: scroll so its middle sits at the viewport middle.
-        // The text above scrolls up; the active line stays put in the centre.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!_scroll.hasClients || active < 0 || _lineTops == null || active >= _lineTops!.length) return;
-          final target = pad + _lineTops![active] + _lineHeights![active] / 2 - box.maxHeight / 2;
-          final clamped = target.clamp(0.0, _scroll.position.maxScrollExtent);
-          if ((_scroll.offset - clamped).abs() > 2) {
-            _scroll.animateTo(clamped, duration: const Duration(milliseconds: 550), curve: Curves.easeOutCubic);
-          }
-        });
+        // Lyrics begin at the TOP. As the song plays the highlighted line drifts
+        // down until it reaches the middle, then it stays there and the text
+        // scrolls up underneath it. (Negative targets clamp to 0, which is what
+        // keeps the early lines pinned at the top instead of jumping to centre.)
+        const padTop = 16.0;
+        final padBottom = box.maxHeight * 0.55; // last lines can still reach the middle
+        // Scroll ONCE per line change. (Re-issuing animateTo every frame — the
+        // position stream ticks ~60x/sec — restarted the animation constantly,
+        // so it never arrived and the active line drifted out of view.)
+        if (active != _scrolledTo) {
+          _scrolledTo = active;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!_scroll.hasClients) return;
+            // Before the first line (intro), sit at the very top.
+            final double target = (active < 0 || _lineTops == null || active >= _lineTops!.length)
+                ? 0
+                : padTop + _lineTops![active] + _lineHeights![active] / 2 - box.maxHeight / 2;
+            final clamped = target.clamp(0.0, _scroll.position.maxScrollExtent);
+            if ((_scroll.offset - clamped).abs() > 2) {
+              _scroll.animateTo(clamped, duration: const Duration(milliseconds: 600), curve: Curves.easeOutCubic);
+            }
+          });
+        }
         final accent = Theme.of(context).colorScheme.primary;
         // Bright, readable accent tint for the currently-sung line.
         final activeColor = Color.lerp(accent, Colors.white, 0.35)!;
@@ -257,7 +272,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
 
         final list = ListView.builder(
           controller: _scroll,
-          padding: EdgeInsets.symmetric(vertical: pad),
+          padding: EdgeInsets.only(top: padTop, bottom: padBottom),
           itemCount: synced.length,
           itemBuilder: (context, i) {
             final on = i == active;
@@ -287,7 +302,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
           },
         );
         if (!showNotes) return list;
-        return Stack(children: [list, Center(child: BouncingNotes(color: activeColor))]);
+        // Put the notes exactly where the next lyric will appear — just under the
+        // last sung line — instead of floating in the middle of the screen.
+        double notesTop = padTop;
+        if (_lineTops != null && active >= 0 && active < _lineTops!.length) {
+          notesTop = padTop + _lineTops![active] + _lineHeights![active]
+              - (_scroll.hasClients ? _scroll.offset : 0);
+        }
+        notesTop = notesTop.clamp(0.0, box.maxHeight - 60);
+        return Stack(children: [
+          list,
+          Positioned(left: 2, top: notesTop,
+            child: IgnorePointer(child: BouncingNotes(color: activeColor))),
+        ]);
       });
     }
     if (lyrics!.plain != null && lyrics!.plain!.trim().isNotEmpty) {
