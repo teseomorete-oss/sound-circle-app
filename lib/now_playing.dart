@@ -22,6 +22,7 @@ class NowPlayingScreen extends StatefulWidget {
 class _NowPlayingScreenState extends State<NowPlayingScreen> {
   bool showLyrics = false;
   Lyrics? lyrics;
+  bool lyricsLoaded = false; // distinguishes 'still loading' from 'none found'
   int? _lyricsForId;
   final _scroll = ScrollController();
 
@@ -56,10 +57,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     if (_lyricsForId == s.deezerId) return;
     _lyricsForId = s.deezerId;
     lyrics = null;
+    lyricsLoaded = false;
     _scrolledTo = -2; // new song → re-anchor the scroll
     if (_scroll.hasClients) _scroll.jumpTo(0);
     final l = await LyricsApi.fetch(s);
-    if (mounted && _lyricsForId == s.deezerId) setState(() => lyrics = l);
+    if (mounted && _lyricsForId == s.deezerId) setState(() { lyrics = l; lyricsLoaded = true; });
   }
 
   // Measured line geometry so we can smoothly centre even off-screen lines.
@@ -231,7 +233,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   }
 
   Widget _lyricsView(double pos) {
-    if (lyrics == null) return const Center(child: CircularProgressIndicator(color: Colors.white));
+    if (lyrics == null) {
+      if (!lyricsLoaded) return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return const Center(child: Padding(padding: EdgeInsets.all(24),
+        child: Text('No lyrics found for this song', textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white54, fontSize: 16))));
+    }
     final synced = lyrics!.synced;
     if (synced != null && synced.isNotEmpty) {
       final active = _activeLine(pos);

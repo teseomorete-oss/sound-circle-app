@@ -119,6 +119,7 @@ class Player extends ChangeNotifier {
     _audio.currentIndexStream.listen((i) {
       if (i == null || i >= _loaded.length) return;
       final s = _loaded[i];
+      error = null; needsDownloads = false; // a track is playing → clear any old failure
       _manualIds.remove(s.deezerId); // it's now playing, no longer "up next"
       if (s.deezerId != current?.deezerId) {
         current = s; error = null; loading = false;
@@ -303,6 +304,9 @@ class Player extends ChangeNotifier {
     _upNext.add(s); _manualIds.add(s.deezerId); notifyListeners(); _ensureLookahead();
   }
   void removeFromQueue(int i) { if (i >= 0 && i < _upNext.length) { _manualIds.remove(_upNext[i].deezerId); _upNext.removeAt(i); notifyListeners(); } }
+
+  /// Dismiss the offline/error banner.
+  void clearError() { error = null; needsDownloads = false; notifyListeners(); }
 
   void toggle() { _audio.playing ? _audio.pause() : _audio.play(); notifyListeners(); }
   void seek(Duration d) => _audio.seek(d);

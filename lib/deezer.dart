@@ -142,12 +142,39 @@ class Deezer {
 
   // Audio dramas / audiobooks that pollute Deezer's global artist chart.
   static final _nonMusic = RegExp(
-      r'\?\?\?|h[oö]rspiel|h[oö]rbuch|\bfolge\s*\d|drei fragezeichen|\bTKKG\b|bibi|benjamin bl|conni|five nights|asmr|white noise|sleep sounds',
+      r'\?\?\?|!!!|h[oö]rspiel|h[oö]rbuch|\bfolge\s*\d|drei fragezeichen|\bdie drei\b|\bTKKG\b|bibi|'
+      r'benjamin bl|conni|pumuckl|feuerwehrmann sam|paw patrol|peppa|five nights|asmr|white noise|'
+      r'sleep sounds|schlaflieder|einschlaf|meditation|h[oö]rgeschichte|kinderlieder|gute nacht',
       caseSensitive: false);
 
+  /// Top artists. Deezer's own /chart/0/artists is dominated by German audio
+  /// dramas (Die drei ???, TKKG, Bibi…), so we derive the ranking from the
+  /// TRACK chart — real music — and only fall back to the artist chart.
   static Future<List<Artist>> chartArtists({int limit = 20}) async {
     try {
-      final data = ((await _get('/chart/0/artists?limit=${limit + 12}'))['data'] as List?) ?? [];
+      final tracks = await chart(limit: 100);
+      final order = <int>[];
+      final byId = <int, Artist>{};
+      for (final t in tracks) {
+        final id = t.artistId;
+        if (id == null || t.artist.isEmpty || _nonMusic.hasMatch(t.artist)) continue;
+        if (byId.containsKey(id)) continue;
+        byId[id] = Artist(id: id, name: t.artist);
+        order.add(id);
+        if (order.length >= limit) break;
+      }
+      if (order.isNotEmpty) {
+        // Fetch full artist records (pictures + follower counts) in parallel.
+        final full = await Future.wait(order.map((id) => artist(id)));
+        final out = <Artist>[];
+        for (var i = 0; i < order.length; i++) {
+          out.add(full[i] ?? byId[order[i]]!);
+        }
+        return out;
+      }
+    } catch (_) {}
+    try {
+      final data = ((await _get('/chart/0/artists?limit=${limit + 30}'))['data'] as List?) ?? [];
       return data
           .map((e) => Artist.fromDeezer(e as Map<String, dynamic>))
           .where((a) => !_nonMusic.hasMatch(a.name))
@@ -194,11 +221,21 @@ class Deezer {
     } catch (_) { return []; }
   }
 
+  /// New releases. Deezer's /editorial/0/releases returns an empty list, so the
+  /// album chart is the working source.
   static Future<List<Album>> newReleases({int limit = 20}) async {
-    try {
-      final data = ((await _get('/editorial/0/releases?limit=$limit'))['data'] as List?) ?? [];
-      return data.map((e) => Album.fromDeezer(e as Map<String, dynamic>)).toList();
-    } catch (_) { return []; }
+    Future<List<Album>> from(String path) async {
+      try {
+        final data = ((await _get(path))['data'] as List?) ?? [];
+        return data
+            .map((e) => Album.fromDeezer(e as Map<String, dynamic>))
+            .where((a) => !_nonMusic.hasMatch(a.title) && !_nonMusic.hasMatch(a.artist))
+            .toList();
+      } catch (_) { return []; }
+    }
+    var out = await from('/chart/0/albums?limit=${limit + 20}');
+    if (out.isEmpty) out = await from('/editorial/0/releases?limit=$limit');
+    return out.take(limit).toList();
   }
 }
 
@@ -231,38 +268,78 @@ class Billboard {
 /// Synced lyrics from lrclib.net (free, no key).
 class LyricsApi {
   static Future<Lyrics?> fetch(Song s) async {
+    // Try, in order: exact match with duration, exact match without duration,
+    // then a search — first with the full title, then with a simplified one
+    // ("Song (feat. X) - Remaster" → "Song"). lrclib 404s on near-misses, so a
+    // single strict lookup was leaving lots of songs with no lyrics at all.
+    final simple = s.title
+        .replaceAll(RegExp(r'\s*[\(\[].*?[\)\]]'), '')
+        .replaceAll(RegExp(r'\s*-\s*(remaster|remastered|radio edit|single version).*$', caseSensitive: false), '')
+        .trim();
+
+    Lyrics? out;
+    out = await _get({
+      'track_name': s.title, 'artist_name': s.artist,
+      if (s.album != null) 'album_name': s.album!,
+      if (s.duration != null) 'duration': s.duration.toString(),
+    });
+    out ??= await _get({'track_name': s.title, 'artist_name': s.artist});
+    if (out == null && simple.isNotEmpty && simple.toLowerCase() != s.title.toLowerCase()) {
+      out = await _get({'track_name': simple, 'artist_name': s.artist});
+    }
+    out ??= await _search(s.title, s.artist, s.duration);
+    if (out == null && simple.isNotEmpty) out = await _search(simple, s.artist, s.duration);
+    return out;
+  }
+
+  static Future<Lyrics?> _get(Map<String, String> params) async {
     try {
-      final p = {
-        'track_name': s.title,
-        'artist_name': s.artist,
-        if (s.album != null) 'album_name': s.album!,
-        if (s.duration != null) 'duration': s.duration.toString(),
-      };
-      final uri = Uri.https('lrclib.net', '/api/get', p);
-      var r = await http.get(uri, headers: {'User-Agent': 'SoundCircle'});
-      if (r.statusCode != 200) {
-        // fall back to search
-        final sr = await http.get(Uri.https('lrclib.net', '/api/search',
-            {'track_name': s.title, 'artist_name': s.artist}), headers: {'User-Agent': 'SoundCircle'});
-        final list = jsonDecode(sr.body) as List?;
-        if (list == null || list.isEmpty) return null;
-        r = http.Response(jsonEncode(list.first), 200);
+      final r = await http.get(Uri.https('lrclib.net', '/api/get', params),
+          headers: {'User-Agent': 'SoundCircle'});
+      if (r.statusCode != 200) return null;
+      return _parse(jsonDecode(r.body) as Map<String, dynamic>);
+    } catch (_) { return null; }
+  }
+
+  static Future<Lyrics?> _search(String title, String artist, int? duration) async {
+    try {
+      final r = await http.get(
+          Uri.https('lrclib.net', '/api/search', {'track_name': title, 'artist_name': artist}),
+          headers: {'User-Agent': 'SoundCircle'});
+      if (r.statusCode != 200) return null;
+      final list = (jsonDecode(r.body) as List?) ?? [];
+      if (list.isEmpty) return null;
+      // Prefer a result with synced lyrics and a close duration.
+      Map<String, dynamic>? best;
+      double bestScore = -1e9;
+      for (final e in list.take(10)) {
+        final m = (e as Map).cast<String, dynamic>();
+        double sc = 0;
+        if ((m['syncedLyrics'] as String?)?.trim().isNotEmpty == true) sc += 10;
+        final d = (m['duration'] as num?)?.toDouble();
+        if (duration != null && d != null) sc -= (d - duration).abs() / 5;
+        if (sc > bestScore) { bestScore = sc; best = m; }
       }
-      final j = jsonDecode(r.body) as Map<String, dynamic>;
-      final syncedRaw = j['syncedLyrics'] as String?;
-      final plain = j['plainLyrics'] as String?;
-      List<LyricLine>? synced;
-      if (syncedRaw != null && syncedRaw.trim().isNotEmpty) {
-        synced = [];
-        for (final line in syncedRaw.split('\n')) {
-          final m = RegExp(r'\[(\d+):(\d+)\.(\d+)\]\s*(.*)').firstMatch(line);
-          if (m != null) {
-            final t = int.parse(m[1]!) * 60 + int.parse(m[2]!) + int.parse(m[3]!) / 100;
-            synced.add(LyricLine(t, m[4] ?? ''));
-          }
+      return best == null ? null : _parse(best);
+    } catch (_) { return null; }
+  }
+
+  static Lyrics? _parse(Map<String, dynamic> j) {
+    final syncedRaw = j['syncedLyrics'] as String?;
+    final plain = j['plainLyrics'] as String?;
+    List<LyricLine>? synced;
+    if (syncedRaw != null && syncedRaw.trim().isNotEmpty) {
+      synced = [];
+      for (final line in syncedRaw.split('\n')) {
+        final m = RegExp(r'\[(\d+):(\d+)[.:](\d+)\]\s*(.*)').firstMatch(line);
+        if (m != null) {
+          final t = int.parse(m[1]!) * 60 + int.parse(m[2]!) + int.parse(m[3]!) / 100;
+          synced.add(LyricLine(t, (m[4] ?? '').trim()));
         }
       }
-      return Lyrics(synced, plain);
-    } catch (_) { return null; }
+      if (synced.isEmpty) synced = null;
+    }
+    if (synced == null && (plain == null || plain.trim().isEmpty)) return null;
+    return Lyrics(synced, plain);
   }
 }
