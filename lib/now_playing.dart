@@ -272,7 +272,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
         }
         final accent = Theme.of(context).colorScheme.primary;
         // Bright, readable accent tint for the currently-sung line.
-        final activeColor = Color.lerp(accent, Colors.white, 0.35)!;
+        final activeColor = Color.lerp(accent, Colors.white, 0.15)!;
         final playing = context.watch<Player>().playing;
         final gap = _gapAhead(pos);
         final showNotes = playing && gap > 6; // long instrumental → animated notes
@@ -301,12 +301,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                       style: TextStyle(
                         fontSize: 27, height: 1.2,
                         fontWeight: FontWeight.w800,
-                        color: on ? activeColor : (passed ? Colors.white54 : Colors.white38)),
+                        color: on ? activeColor : (passed ? Colors.white38 : Colors.white30)),
                       child: Text(synced[i].text.isEmpty ? '♪' : synced[i].text, textAlign: TextAlign.left),
                     ),
                     // Long instrumental after this line → notes get their own space.
                     if (showNotes && on)
-                      Padding(padding: const EdgeInsets.only(top: 10), child: BouncingNotes(color: activeColor)),
+                      Padding(padding: const EdgeInsets.only(top: 8), child: BouncingNotes(color: activeColor)),
                   ]),
                 ),
               ),
@@ -318,7 +318,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
         // active line's item — see the itemBuilder — which reserves real space.)
         if (showNotes && active < 0) {
           return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(padding: const EdgeInsets.fromLTRB(2, 14, 0, 6), child: BouncingNotes(color: activeColor)),
+            Padding(padding: const EdgeInsets.fromLTRB(2, 10, 0, 4), child: BouncingNotes(color: activeColor)),
             Expanded(child: list),
           ]);
         }
@@ -333,8 +333,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   }
 }
 
-/// Music notes that bob up and down on a sine wave (staggered), gently swaying —
-/// shown during long instrumental gaps in the lyrics.
+/// A compact equaliser that pulses while an instrumental section plays — tidier
+/// than scattered notes and matches the Sound Circle waveform mark.
 class BouncingNotes extends StatefulWidget {
   final Color color;
   const BouncingNotes({super.key, required this.color});
@@ -343,29 +343,30 @@ class BouncingNotes extends StatefulWidget {
 }
 
 class _BouncingNotesState extends State<BouncingNotes> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
-  static const _icons = [Icons.music_note, Icons.audiotrack, Icons.music_note];
-  static const _sizes = [30.0, 42.0, 30.0];
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+  static const _bars = 4;
+
   @override
   void dispose() { _c.dispose(); super.dispose(); }
+
   @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) => Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center,
-        children: List.generate(3, (i) {
-          final phase = _c.value * 2 * math.pi + i * (2 * math.pi / 3);
-          final dy = -18 * (0.5 + 0.5 * math.sin(phase));      // 0 … -18 px
-          final sway = 3 * math.sin(phase * 0.5);              // gentle tilt
-          final scale = 0.85 + 0.25 * (0.5 + 0.5 * math.sin(phase));
-          final op = 0.45 + 0.55 * (0.5 + 0.5 * math.sin(phase));
-          return Padding(padding: const EdgeInsets.symmetric(horizontal: 7),
-            child: Transform.translate(offset: Offset(0, dy),
-              child: Transform.rotate(angle: sway * math.pi / 180,
-                child: Transform.scale(scale: scale,
-                  child: Opacity(opacity: op.clamp(0.0, 1.0),
-                    child: Icon(_icons[i], color: widget.color, size: _sizes[i]))))));
-        })),
-    );
-  }
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) => SizedBox(
+          height: 22,
+          child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(_bars, (i) {
+              final phase = _c.value * 2 * math.pi + i * 0.9;
+              final h = 7 + 15 * (0.5 + 0.5 * math.sin(phase));
+              return Container(
+                width: 4, height: h,
+                margin: const EdgeInsets.only(right: 4),
+                decoration: BoxDecoration(
+                  color: widget.color.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(2)),
+              );
+            })),
+        ),
+      );
 }
