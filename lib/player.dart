@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
@@ -36,6 +37,43 @@ class Player extends ChangeNotifier {
   final Map<int, (Uri, DateTime)> _urlCache = {};
   static const _urlTtl = Duration(hours: 2);
   bool _recovering = false;
+
+  // ---- Sleep timer ----
+  Timer? _sleepTimer;
+  DateTime? sleepAt;          // when playback will stop (null = off)
+  bool sleepAfterTrack = false; // stop when the current song ends instead
+
+  Duration? get sleepRemaining =>
+      sleepAt == null ? null : sleepAt!.difference(DateTime.now());
+
+  bool get sleepActive => sleepAt != null || sleepAfterTrack;
+
+  void setSleepTimer(Duration? d) {
+    _sleepTimer?.cancel();
+    sleepAfterTrack = false;
+    if (d == null) { sleepAt = null; notifyListeners(); return; }
+    sleepAt = DateTime.now().add(d);
+    _sleepTimer = Timer(d, () {
+      _audio.pause();
+      sleepAt = null;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  void setSleepAfterTrack() {
+    _sleepTimer?.cancel();
+    sleepAt = null;
+    sleepAfterTrack = true;
+    notifyListeners();
+  }
+
+  void cancelSleep() {
+    _sleepTimer?.cancel();
+    sleepAt = null;
+    sleepAfterTrack = false;
+    notifyListeners();
+  }
   void Function(Song)? onPlayed;
   void Function(String message, bool offline)? onError;
   String? Function(int deezerId)? localPath; // returns a downloaded file path if offline-saved
@@ -119,6 +157,7 @@ class Player extends ChangeNotifier {
     _audio.playerStateStream.listen((st) {
       // Reached the very end of the loaded playlist → try to extend with radio.
       if (st.processingState == ProcessingState.completed) {
+        if (sleepAfterTrack) { sleepAfterTrack = false; _audio.pause(); notifyListeners(); return; }
         _ensureLookahead().then((_) { if (_audio.hasNext) _audio.seekToNext(); });
       }
       notifyListeners();
@@ -126,6 +165,12 @@ class Player extends ChangeNotifier {
     // Native advanced to the next (pre-loaded) track — sync our state.
     _audio.currentIndexStream.listen((i) {
       if (i == null || i >= _loaded.length) return;
+      // "Stop after this song" — the native player already advanced, so pause.
+      if (sleepAfterTrack && current != null && i < _loaded.length &&
+          _loaded[i].deezerId != current!.deezerId) {
+        sleepAfterTrack = false;
+        _audio.pause();
+      }
       // Guard against drift between our list and the native playlist.
       if (_playlist.length != _loaded.length) {
         assert(false, 'playlist/loaded desync');
@@ -394,5 +439,5 @@ class Player extends ChangeNotifier {
   }
 
   @override
-  void dispose() { _audio.dispose(); _yt.close(); super.dispose(); }
+  void dispose() { _sleepTimer?.cancel(); _audio.dispose(); _yt.close(); super.dispose(); }
 }

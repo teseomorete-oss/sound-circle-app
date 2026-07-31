@@ -30,6 +30,13 @@ class Library extends ChangeNotifier {
   final List<Song> downloads = [];        // songs saved for offline
   final Map<int, String> _dlPaths = {};   // deezerId -> local file path
 
+  // ---- Listening stats ----
+  // Play events (song id + timestamp) so we can answer "top songs this month".
+  // Capped so the synced document stays small.
+  final List<({int id, DateTime at})> plays = [];
+  final Map<int, Song> _songById = {};     // metadata for anything ever played
+  static const _maxPlays = 3000;
+
   SharedPreferences? _prefs;
 
   // ---- Cloud sync (Firestore) ----
@@ -59,6 +66,12 @@ class Library extends ChangeNotifier {
         followed..clear()..addAll(ml('followed').map(Artist.fromJson));
         history..clear()..addAll(ml('history').map(Song.fromJson));
         playlists..clear()..addAll(ml('playlists').map(Playlist.fromJson));
+        plays..clear()..addAll(ml('plays')
+            .map((m) => (id: (m['id'] as num).toInt(), at: DateTime.tryParse('${m['at']}')))
+            .where((e) => e.at != null)
+            .map((e) => (id: e.id, at: e.at!)));
+        _songById..clear()..addEntries(ml('playSongs').map(Song.fromJson).map((s) => MapEntry(s.deezerId, s)));
+        _savePlays();
         _save('liked', liked.map((e) => e.toJson()).toList());
         _save('followed', followed.map((e) => e.toJson()).toList());
         _save('history', history.map((e) => e.toJson()).toList());
@@ -88,6 +101,8 @@ class Library extends ChangeNotifier {
       'playlists': playlists.map((e) => e.toJson()).toList(),
       // Just the song list — the audio files themselves stay on each device.
       'downloads': downloads.map((e) => e.toJson()).toList(),
+      'plays': plays.map((p) => {'id': p.id, 'at': p.at.toIso8601String()}).toList(),
+      'playSongs': _songById.values.map((e) => e.toJson()).toList(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -98,6 +113,15 @@ class Library extends ChangeNotifier {
     _load('history', (l) => history..addAll(l.map((e) => Song.fromJson(e as Map<String, dynamic>))));
     _load('followed', (l) => followed..addAll(l.map((e) => Artist.fromJson(e as Map<String, dynamic>))));
     _load('playlists', (l) => playlists..addAll(l.map((e) => Playlist.fromJson(e as Map<String, dynamic>))));
+    _load('plays', (l) { for (final e in l) {
+      final m = e as Map<String, dynamic>;
+      final at = DateTime.tryParse('${m['at']}');
+      if (at != null) plays.add((id: (m['id'] as num).toInt(), at: at));
+    }});
+    _load('playSongs', (l) { for (final e in l) {
+      final s = Song.fromJson(e as Map<String, dynamic>);
+      _songById[s.deezerId] = s;
+    }});
     _load('downloads', (l) => l.forEach((e) {
       final m = e as Map<String, dynamic>;
       final s = Song.fromJson(m['song'] as Map<String, dynamic>);
@@ -149,7 +173,68 @@ class Library extends ChangeNotifier {
     history.insert(0, s);
     if (history.length > 100) history.removeRange(100, history.length);
     _save('history', history.map((e) => e.toJson()).toList());
+
+    // Record the play for stats.
+    plays.add((id: s.deezerId, at: DateTime.now()));
+    if (plays.length > _maxPlays) plays.removeRange(0, plays.length - _maxPlays);
+    _songById[s.deezerId] = s;
+    _savePlays();
     notifyListeners();
+  }
+
+  void _savePlays() {
+    _save('plays', plays.map((p) => {'id': p.id, 'at': p.at.toIso8601String()}).toList());
+    // Keep metadata only for songs we still reference.
+    final live = plays.map((p) => p.id).toSet();
+    _songById.removeWhere((k, v) => !live.contains(k));
+    _save('playSongs', _songById.values.map((e) => e.toJson()).toList());
+  }
+
+  /// Plays within the last [days] (null = all time), newest first.
+  List<({int id, DateTime at})> playsSince(int? days) {
+    if (days == null) return plays;
+    final cutoff = DateTime.now().subtract(Duration(days: days));
+    return plays.where((p) => p.at.isAfter(cutoff)).toList();
+  }
+
+  Song? songFor(int id) => _songById[id] ??
+      history.where((s) => s.deezerId == id).firstOrNull ??
+      liked.where((s) => s.deezerId == id).firstOrNull;
+
+  /// Ranked (song, playCount) pairs.
+  List<({Song song, int count})> topSongs({int? days, int limit = 20}) {
+    final counts = <int, int>{};
+    for (final p in playsSince(days)) { counts[p.id] = (counts[p.id] ?? 0) + 1; }
+    final out = <({Song song, int count})>[];
+    final ids = counts.keys.toList()..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    for (final id in ids) {
+      final s = songFor(id);
+      if (s != null) out.add((song: s, count: counts[id]!));
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /// Ranked (artist name, playCount) pairs.
+  List<({String name, int count, String? picture})> topArtists({int? days, int limit = 20}) {
+    final counts = <String, int>{};
+    for (final p in playsSince(days)) {
+      final s = songFor(p.id);
+      if (s == null || s.artist.isEmpty) continue;
+      counts[s.artist] = (counts[s.artist] ?? 0) + 1;
+    }
+    final names = counts.keys.toList()..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+    return names.take(limit).map((n) {
+      final pic = followed.where((a) => a.name == n).firstOrNull?.picture;
+      return (name: n, count: counts[n]!, picture: pic);
+    }).toList();
+  }
+
+  /// Rough listening time, from each play's track length.
+  Duration listenedTime({int? days}) {
+    var secs = 0;
+    for (final p in playsSince(days)) { secs += songFor(p.id)?.duration ?? 0; }
+    return Duration(seconds: secs);
   }
 
   void clearHistory() { history.clear(); _save('history', []); notifyListeners(); }

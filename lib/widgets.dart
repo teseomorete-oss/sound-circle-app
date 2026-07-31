@@ -8,6 +8,7 @@ import 'store.dart';
 import 'settings.dart';
 import 'detail.dart';
 import 'downloads.dart';
+import 'package:share_plus/share_plus.dart';
 import 'screens.dart';
 
 const surface = Color(0xFF16161f);
@@ -180,6 +181,14 @@ void showSongMenu(BuildContext context, Song song) {
           });
         }
         break;
+      case 'share':
+        Share.share(
+          '${song.title} — ${song.artist}\n\n'
+          'Listening on Sound Circle 🎵\n'
+          'https://github.com/teseomorete-oss/sound-circle-app/releases/latest',
+          subject: '${song.title} — ${song.artist}');
+        break;
+      case 'sleep': showSleepTimer(context); break;
       case 'album': if (song.albumId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: song.albumId!, title: song.album ?? ''))); break;
       case 'artist': if (song.artistId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: song.artistId!, name: song.artist))); break;
       default: toast(context, 'Noted');
@@ -190,6 +199,7 @@ void showSongMenu(BuildContext context, Song song) {
         'playNext': Icons.skip_next, 'queue': Icons.queue_music, 'like': liked ? Icons.favorite : Icons.favorite_border,
         'playlist': Icons.playlist_add, 'radio': Icons.radio, 'download': downloaded ? Icons.download_done : Icons.download,
         'album': Icons.album, 'artist': Icons.person, 'hide': Icons.not_interested, 'block': Icons.block,
+        'share': Icons.ios_share, 'sleep': Icons.bedtime_outlined,
       }[k] ?? Icons.circle;
 
   String label(String k) => k == 'download' ? (downloaded ? 'Downloaded' : 'Download') : (allMenuActions[k] ?? k);
@@ -775,6 +785,55 @@ class PlaylistCardW extends StatelessWidget {
           ]),
         ),
       );
+}
+
+/// Stop playback after a while — or at the end of the current song.
+void showSleepTimer(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF14141f),
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (_) => Consumer<Player>(builder: (sheetCtx, p, __) {
+      final left = p.sleepRemaining;
+      return SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+          child: Row(children: [
+            const Icon(Icons.bedtime_outlined),
+            const SizedBox(width: 10),
+            const Text('Sleep timer', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            if (p.sleepActive)
+              Text(p.sleepAfterTrack
+                    ? 'end of song'
+                    : left == null ? '' : '${left.inMinutes + 1} min left',
+                style: TextStyle(color: Theme.of(sheetCtx).colorScheme.primary, fontWeight: FontWeight.w600)),
+          ])),
+        for (final m in const [5, 15, 30, 45, 60, 90])
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.timer_outlined, size: 20),
+            title: Text('$m minutes'),
+            onTap: () { p.setSleepTimer(Duration(minutes: m)); Navigator.pop(sheetCtx);
+              toast(context, 'Stopping in $m min', icon: Icons.bedtime); },
+          ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.music_note, size: 20),
+          title: const Text('At the end of this song'),
+          onTap: () { p.setSleepAfterTrack(); Navigator.pop(sheetCtx);
+            toast(context, 'Stopping after this song', icon: Icons.bedtime); },
+        ),
+        if (p.sleepActive)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.close, size: 20, color: Colors.redAccent),
+            title: const Text('Turn off', style: TextStyle(color: Colors.redAccent)),
+            onTap: () { p.cancelSleep(); Navigator.pop(sheetCtx); toast(context, 'Sleep timer off'); },
+          ),
+        const SizedBox(height: 10),
+      ]));
+    }),
+  );
 }
 
 // ---- Visible queue (manual songs only) ----

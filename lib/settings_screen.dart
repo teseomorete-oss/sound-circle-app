@@ -6,6 +6,7 @@ import 'player.dart';
 import 'auth.dart';
 import 'remote_config.dart';
 import 'feedback.dart';
+import 'stats_screen.dart';
 import 'widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -119,6 +120,25 @@ class SettingsScreen extends StatelessWidget {
         _chips(context, bigCapable, s.menuBig, (list) => s.update(() => s.menuBig = list), max: 3),
         _h('Song menu · options'),
         _chips(context, allMenuActions.keys.toList(), s.menuOptions, (list) => s.update(() => s.menuOptions = list)),
+
+        _h('You'),
+        ListTile(
+          leading: Icon(Icons.bar_chart, color: s.accentColors[0]),
+          title: const Text('Your listening'),
+          subtitle: const Text('Top songs, artists and time listened'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatsScreen())),
+        ),
+        ListTile(
+          leading: Icon(Icons.bedtime_outlined, color: s.accentColors[0]),
+          title: const Text('Sleep timer'),
+          subtitle: Text(player.sleepActive
+            ? (player.sleepAfterTrack ? 'Stops at the end of this song'
+               : 'Stops in ${(player.sleepRemaining?.inMinutes ?? 0) + 1} min')
+            : 'Stop playback after a while'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => showSleepTimer(context),
+        ),
 
         _h('Feedback'),
         ListTile(
