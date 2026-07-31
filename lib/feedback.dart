@@ -101,3 +101,43 @@ Future<void> showFeedbackSheet(BuildContext context) async {
     }),
   );
 }
+
+/// Show the developer's reply to this user's feedback, once, on next launch.
+Future<void> checkFeedbackReplies(BuildContext context) async {
+  final uid = context.read<Auth>().uid;
+  if (uid == null) return;
+  try {
+    final q = await FirebaseFirestore.instance
+        .collection('feedback')
+        .where('uid', isEqualTo: uid)
+        .get();
+    for (final d in q.docs) {
+      final m = d.data();
+      final reply = (m['reply'] ?? '').toString();
+      if (reply.isEmpty || m['replySeen'] == true) continue;
+      if (!context.mounted) return;
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: const Color(0xFF1a1a2b),
+          icon: const Icon(Icons.mark_email_read_outlined, size: 30),
+          title: const Text('Reply to your feedback'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10)),
+              child: Text('"${m['text'] ?? ''}"',
+                style: const TextStyle(color: Colors.white54, fontSize: 13, fontStyle: FontStyle.italic)),
+            ),
+            const SizedBox(height: 14),
+            Text(reply, style: const TextStyle(fontSize: 15)),
+          ]),
+          actions: [
+            FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Nice')),
+          ],
+        ),
+      );
+      await d.reference.set({'replySeen': true}, SetOptions(merge: true));
+    }
+  } catch (_) {}
+}

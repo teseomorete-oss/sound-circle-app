@@ -20,10 +20,12 @@ service cloud.firestore {
       allow read: if isAdmin();
     }
 
-    // Feedback: anyone signed in can send; only the admin reads it.
+    // Feedback: anyone signed in can send. The admin reads everything and
+    // writes replies; a user can read their own and mark a reply as seen.
     match /feedback/{doc} {
       allow create: if request.auth != null;
-      allow read: if isAdmin();
+      allow read, update: if isAdmin()
+        || (request.auth != null && resource.data.uid == request.auth.uid);
     }
 
     // Update notice: everyone reads it, only the admin publishes it.
