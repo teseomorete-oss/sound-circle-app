@@ -31,7 +31,11 @@ class Player extends ChangeNotifier {
   Duration position = Duration.zero;
   Duration duration = Duration.zero;
 
-  final Map<int, Uri> _urlCache = {};
+  // Resolved stream URLs expire after a few hours; caching them forever meant
+  // playback would suddenly fail or stop on a later play.
+  final Map<int, (Uri, DateTime)> _urlCache = {};
+  static const _urlTtl = Duration(hours: 2);
+  bool _recovering = false;
   void Function(Song)? onPlayed;
   void Function(String message, bool offline)? onError;
   String? Function(int deezerId)? localPath; // returns a downloaded file path if offline-saved
@@ -108,6 +112,10 @@ class Player extends ChangeNotifier {
   Player() {
     _audio.positionStream.listen((p) { position = p; notifyListeners(); });
     _audio.durationStream.listen((d) { duration = d ?? Duration.zero; notifyListeners(); });
+    // A dead/expired stream URL surfaces here. Re-resolve and resume where we
+    // were instead of silently stopping.
+    _audio.playbackEventStream.listen((_) {}, onError: (Object e, StackTrace st) => _recover());
+
     _audio.playerStateStream.listen((st) {
       // Reached the very end of the loaded playlist → try to extend with radio.
       if (st.processingState == ProcessingState.completed) {
@@ -118,6 +126,11 @@ class Player extends ChangeNotifier {
     // Native advanced to the next (pre-loaded) track — sync our state.
     _audio.currentIndexStream.listen((i) {
       if (i == null || i >= _loaded.length) return;
+      // Guard against drift between our list and the native playlist.
+      if (_playlist.length != _loaded.length) {
+        assert(false, 'playlist/loaded desync');
+        return;
+      }
       final s = _loaded[i];
       error = null; needsDownloads = false; // a track is playing → clear any old failure
       _manualIds.remove(s.deezerId); // it's now playing, no longer "up next"
@@ -205,9 +218,10 @@ class Player extends ChangeNotifier {
   Future<Uri?> _resolveUrl(Song s) async {
     final local = localPath?.call(s.deezerId);
     if (local != null) return Uri.file(local);
-    if (_urlCache.containsKey(s.deezerId)) return _urlCache[s.deezerId];
+    final hit = _urlCache[s.deezerId];
+    if (hit != null && DateTime.now().difference(hit.$2) < _urlTtl) return hit.$1;
     final url = await _resolveYt(s);
-    if (url != null) _urlCache[s.deezerId] = url;
+    if (url != null) _urlCache[s.deezerId] = (url, DateTime.now());
     return url;
   }
 
@@ -304,6 +318,29 @@ class Player extends ChangeNotifier {
     _upNext.add(s); _manualIds.add(s.deezerId); notifyListeners(); _ensureLookahead();
   }
   void removeFromQueue(int i) { if (i >= 0 && i < _upNext.length) { _manualIds.remove(_upNext[i].deezerId); _upNext.removeAt(i); notifyListeners(); } }
+
+  /// Re-resolve the current track and resume from the same spot. Used when the
+  /// stream URL dies mid-playback (expiry / 403), which previously just stopped
+  /// the music with no explanation.
+  Future<void> _recover() async {
+    if (_recovering) return;
+    final s = current;
+    final ci = _audio.currentIndex;
+    if (s == null || ci == null) return;
+    _recovering = true;
+    final at = position;
+    try {
+      _urlCache.remove(s.deezerId);            // force a fresh URL
+      final url = await _resolveUrl(s);
+      if (url == null) return;
+      if (ci >= _loaded.length || _loaded[ci].deezerId != s.deezerId) return;
+      await _playlist.removeAt(ci);
+      await _playlist.insert(ci, _src(s, url));
+      await _audio.seek(at, index: ci);
+      _audio.play();
+    } catch (_) {
+    } finally { _recovering = false; }
+  }
 
   /// Dismiss the offline/error banner.
   void clearError() { error = null; needsDownloads = false; notifyListeners(); }

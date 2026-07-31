@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'deezer.dart';
 import 'player.dart';
 import 'store.dart';
@@ -23,6 +24,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   bool showLyrics = false;
   Lyrics? lyrics;
   bool lyricsLoaded = false; // distinguishes 'still loading' from 'none found'
+  // Per-song timing nudge. Some YouTube uploads have a longer/shorter intro than
+  // the recording the lyrics were timed against, so the words drift.
+  double lyricsOffset = 0;
   int? _lyricsForId;
   final _scroll = ScrollController();
 
@@ -60,6 +64,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     lyricsLoaded = false;
     _scrolledTo = -2; // new song → re-anchor the scroll
     if (_scroll.hasClients) _scroll.jumpTo(0);
+    final prefs = await SharedPreferences.getInstance();
+    lyricsOffset = prefs.getDouble('lyrOff_${s.deezerId}') ?? 0;
     final l = await LyricsApi.fetch(s);
     if (mounted && _lyricsForId == s.deezerId) setState(() { lyrics = l; lyricsLoaded = true; });
   }
@@ -91,6 +97,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     if (synced == null || synced.isEmpty) return 0;
     for (final l in synced) { if (l.time > pos + 0.1) return l.time - pos; }
     return 0;
+  }
+
+  Future<void> _nudge(double delta) async {
+    final id = _lyricsForId;
+    setState(() => lyricsOffset = (lyricsOffset + delta).clamp(-15.0, 15.0));
+    if (id != null) {
+      (await SharedPreferences.getInstance()).setDouble('lyrOff_$id', lyricsOffset);
+    }
   }
 
   int _activeLine(double pos) {
@@ -137,13 +151,35 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
               Row(children: [
                 IconButton(icon: const Icon(Icons.keyboard_arrow_down, size: 30), onPressed: () => Navigator.pop(context)),
                 const Spacer(),
-                Text(showLyrics ? 'LYRICS' : 'NOW PLAYING', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1)),
+                if (!showLyrics)
+                  const Text('NOW PLAYING', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1))
+                else
+                  // Nudge the lyric timing when an upload runs early/late.
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(
+                      iconSize: 18, visualDensity: VisualDensity.compact,
+                      tooltip: 'Lyrics earlier',
+                      icon: const Icon(Icons.remove),
+                      onPressed: () => _nudge(-0.5)),
+                    GestureDetector(
+                      onTap: () => _nudge(-lyricsOffset), // tap to reset
+                      child: Text(
+                        lyricsOffset == 0 ? 'LYRICS' : '${lyricsOffset > 0 ? '+' : ''}${lyricsOffset.toStringAsFixed(1)}s',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1,
+                          color: lyricsOffset == 0 ? Colors.white : Theme.of(context).colorScheme.primary)),
+                    ),
+                    IconButton(
+                      iconSize: 18, visualDensity: VisualDensity.compact,
+                      tooltip: 'Lyrics later',
+                      icon: const Icon(Icons.add),
+                      onPressed: () => _nudge(0.5)),
+                  ]),
                 const Spacer(),
                 IconButton(icon: const Icon(Icons.queue_music), onPressed: () => showQueue(context)),
               ]),
 
               // art or lyrics
-              Expanded(child: showLyrics ? _lyricsView(p.position.inMilliseconds / 1000.0) : Center(
+              Expanded(child: showLyrics ? _lyricsView(p.position.inMilliseconds / 1000.0 - lyricsOffset) : Center(
                 child: Hero(tag: 'npCover',
                   child: ClipRRect(borderRadius: BorderRadius.circular(12),
                     child: s.cover != null
@@ -285,7 +321,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
             final on = i == active;
             final passed = i < active;
             return GestureDetector(
-              onTap: () => context.read<Player>().seek(Duration(milliseconds: (synced[i].time * 1000).round())),
+              onTap: () => context.read<Player>().seek(Duration(milliseconds: ((synced[i].time + lyricsOffset) * 1000).round())),
               behavior: HitTestBehavior.opaque,
               child: AnimatedScale(
                 scale: on ? 1.0 : 0.94,

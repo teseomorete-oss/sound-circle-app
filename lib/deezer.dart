@@ -277,18 +277,21 @@ class LyricsApi {
         .replaceAll(RegExp(r'\s*-\s*(remaster|remastered|radio edit|single version).*$', caseSensitive: false), '')
         .trim();
 
+    // Duration-matched results FIRST. lrclib often returns a different edit as
+    // its top hit (Instant Crush: 367s vs the real 337s), and accepting that
+    // gives lyrics that drift badly out of sync.
     Lyrics? out;
     out = await _get({
       'track_name': s.title, 'artist_name': s.artist,
       if (s.album != null) 'album_name': s.album!,
       if (s.duration != null) 'duration': s.duration.toString(),
     });
-    out ??= await _get({'track_name': s.title, 'artist_name': s.artist});
-    if (out == null && simple.isNotEmpty && simple.toLowerCase() != s.title.toLowerCase()) {
-      out = await _get({'track_name': simple, 'artist_name': s.artist});
-    }
     out ??= await _search(s.title, s.artist, s.duration);
-    if (out == null && simple.isNotEmpty) out = await _search(simple, s.artist, s.duration);
+    if (out == null && simple.isNotEmpty && simple.toLowerCase() != s.title.toLowerCase()) {
+      out = await _search(simple, s.artist, s.duration);
+    }
+    // Only now fall back to an unconstrained lookup.
+    out ??= await _get({'track_name': s.title, 'artist_name': s.artist});
     return out;
   }
 
@@ -317,7 +320,14 @@ class LyricsApi {
         double sc = 0;
         if ((m['syncedLyrics'] as String?)?.trim().isNotEmpty == true) sc += 10;
         final d = (m['duration'] as num?)?.toDouble();
-        if (duration != null && d != null) sc -= (d - duration).abs() / 5;
+        if (duration != null && d != null) {
+          final diff = (d - duration).abs();
+          // A close duration means it's the same recording — weight it heavily.
+          if (diff <= 2) { sc += 25; }
+          else if (diff <= 5) { sc += 15; }
+          else if (diff <= 10) { sc += 5; }
+          else { sc -= diff; }
+        }
         if (sc > bestScore) { bestScore = sc; best = m; }
       }
       return best == null ? null : _parse(best);
