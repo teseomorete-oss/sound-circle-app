@@ -72,6 +72,14 @@ class SettingsScreen extends StatelessWidget {
         SwitchListTile(title: const Text('Autoplay radio'), subtitle: const Text('Keep playing similar songs when the queue ends'),
           value: s.autoplay, onChanged: (v) { s.update(() => s.autoplay = v); player.autoplay = v; }),
 
+        SwitchListTile(title: const Text('Auto-download liked songs'),
+          subtitle: const Text('Saves them for offline as soon as you like them'),
+          value: s.autoDownloadLiked, onChanged: (v) => s.update(() => s.autoDownloadLiked = v)),
+        SwitchListTile(title: const Text('Smooth transitions'),
+          subtitle: const Text('Fade in and out instead of cutting'),
+          value: s.fadeTransitions,
+          onChanged: (v) { s.update(() => s.fadeTransitions = v); player.fadeTransitions = v; }),
+
         _h('Queue sheet'),
         SwitchListTile(title: const Text('Expandable queue'), subtitle: const Text('Drag to grow/shrink while scrolling'),
           value: s.queueExpands, onChanged: (v) => s.update(() => s.queueExpands = v)),

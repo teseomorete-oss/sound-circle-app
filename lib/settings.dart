@@ -13,7 +13,7 @@ const accents = <String, List<Color>>{
 const allMenuActions = <String, String>{
   'playNext': 'Play next', 'queue': 'Add to queue', 'like': 'Like', 'playlist': 'Add to playlist',
   'radio': 'Start radio', 'download': 'Download', 'album': 'Go to album', 'artist': 'Go to artist',
-  'share': 'Share', 'sleep': 'Sleep timer',
+  'share': 'Share', 'sleep': 'Sleep timer', 'shared': 'Add to shared playlist',
   'hide': 'Not interested', 'block': "Don't recommend artist",
 };
 const bigCapable = ['playNext', 'queue', 'like', 'playlist', 'radio', 'download', 'share'];
@@ -26,7 +26,7 @@ class Settings extends ChangeNotifier {
   bool showTrending = true;
   String displayName = '';
   List<String> menuBig = ['playNext', 'like', 'playlist'];
-  List<String> menuOptions = ['queue', 'radio', 'download', 'share', 'sleep', 'album', 'artist', 'hide', 'block'];
+  List<String> menuOptions = ['queue', 'radio', 'download', 'share', 'sleep', 'shared', 'album', 'artist', 'hide', 'block'];
 
   // Home feed sections
   bool showQuickPicks = true;   // 3-row cover grid (YT-Music "Kurzauswahl")
@@ -50,6 +50,10 @@ class Settings extends ChangeNotifier {
   bool queueBarShrink = true;   // contract as you scroll down
   bool queueBarArtist = true;   // show artist under the title
   double queueBarSize = 104;    // cover size in px (slider 68–150)
+
+  // Playback extras
+  bool autoDownloadLiked = false; // save liked songs for offline automatically
+  bool fadeTransitions = true;    // short fade when starting/stopping a track
 
   // Home extras
   bool showGreeting = true;
@@ -96,6 +100,8 @@ class Settings extends ChangeNotifier {
         showGreeting = b('showGreeting', showGreeting);
         moodChips = b('moodChips', moodChips);
         quickPicksSnap = b('quickPicksSnap', quickPicksSnap);
+        autoDownloadLiked = b('autoDownloadLiked', autoDownloadLiked);
+        fadeTransitions = b('fadeTransitions', fadeTransitions);
       } catch (_) {}
     }
     notifyListeners();
@@ -112,6 +118,7 @@ class Settings extends ChangeNotifier {
       'queueBarShow': queueBarShow, 'queueBarOpen': queueBarOpen, 'queueBarShrink': queueBarShrink,
       'queueBarArtist': queueBarArtist, 'queueBarSize': queueBarSize,
       'showGreeting': showGreeting, 'moodChips': moodChips, 'quickPicksSnap': quickPicksSnap,
+      'autoDownloadLiked': autoDownloadLiked, 'fadeTransitions': fadeTransitions,
     }));
     notifyListeners();
   }

@@ -12,6 +12,7 @@ import 'player.dart';
 import 'store.dart';
 import 'settings.dart';
 import 'widgets.dart';
+import 'shared_playlists.dart';
 
 String greeting() {
   final h = DateTime.now().hour;
@@ -477,6 +478,8 @@ class _SearchScreenState extends State<SearchScreen> {
   bool showResults = false;
   Timer? _debounce;
   int _reqId = 0;
+  int filter = 0; // 0 = all, 1 = songs, 2 = artists, 3 = albums
+  List<Album> albums = [];
 
   bool get _hasSuggestions => sgArtists.isNotEmpty || sgSongs.isNotEmpty || sgText.isNotEmpty;
 
@@ -521,7 +524,18 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() { loading = true; showResults = true; _clearSuggestions(); });
     final r = await Future.wait([Deezer.search(q, limit: 40), Deezer.searchArtists(q)]);
     if (!mounted) return;
-    setState(() { songs = r[0] as List<Song>; artists = r[1] as List<Artist>; loading = false; });
+    final found = r[0] as List<Song>;
+    // Albums come from the songs we already fetched — no extra request needed.
+    final seenAlb = <int>{};
+    final alb = <Album>[];
+    for (final x in found) {
+      if (x.albumId != null && x.album != null && seenAlb.add(x.albumId!)) {
+        alb.add(Album(id: x.albumId!, title: x.album!, artist: x.artist, cover: x.cover));
+      }
+    }
+    setState(() {
+      songs = found; artists = r[1] as List<Artist>; albums = alb; loading = false;
+    });
   }
 
   Widget _suggestionsView() => ListView(children: [
@@ -576,13 +590,34 @@ class _SearchScreenState extends State<SearchScreen> {
       Expanded(
         child: (!showResults && _hasSuggestions)
             ? _suggestionsView()
-            : ListView(children: [
-                if (artists.isNotEmpty) ...[
-                  const SectionHeader('Artists'),
-                  CardShelf(children: artists.map((a) => ArtistCardW(artist: a)).toList()),
-                ],
-                if (songs.isNotEmpty) const SectionHeader('Songs'),
-                ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key)),
+            : Column(children: [
+                if (showResults && (songs.isNotEmpty || artists.isNotEmpty))
+                  SizedBox(height: 42, child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: [
+                      for (final f in const [(0, 'All'), (1, 'Songs'), (2, 'Artists'), (3, 'Albums')])
+                        Padding(padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(f.$2),
+                            selected: filter == f.$1,
+                            onSelected: (_) => setState(() => filter = f.$1))),
+                    ])),
+                Expanded(child: ListView(children: [
+                  if (filter != 1 && filter != 3 && artists.isNotEmpty) ...[
+                    if (filter == 0) const SectionHeader('Artists'),
+                    CardShelf(children: artists.map((a) => ArtistCardW(artist: a)).toList()),
+                  ],
+                  if (filter == 3 || filter == 0) ...[
+                    if (albums.isNotEmpty && filter == 0) const SectionHeader('Albums'),
+                    if (albums.isNotEmpty)
+                      CardShelf(children: albums.take(20).map((a) => AlbumCardW(album: a)).toList()),
+                  ],
+                  if (filter != 2 && filter != 3) ...[
+                    if (songs.isNotEmpty && filter == 0) const SectionHeader('Songs'),
+                    ...songs.asMap().entries.map((e) => SongTile(song: e.value, queue: songs, index: e.key)),
+                  ],
+                ])),
               ]),
       ),
     ]);
@@ -611,6 +646,12 @@ class LibraryScreen extends StatelessWidget {
           title: 'Downloaded', subtitle: 'Offline · ${lib.downloads.length} songs',
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SongListScreen(kind: SongListKind.downloads))),
         ),
+
+      _AutoPlaylistTile(
+        gradient: const [Color(0xFF2563EB), Color(0xFF06B6D4)], icon: Icons.group,
+        title: 'Shared playlists', subtitle: 'Make one together with friends',
+        onTap: () => showSharedSheet(context),
+      ),
 
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),

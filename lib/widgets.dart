@@ -9,6 +9,7 @@ import 'settings.dart';
 import 'detail.dart';
 import 'downloads.dart';
 import 'package:share_plus/share_plus.dart';
+import 'shared_playlists.dart';
 import 'screens.dart';
 
 const surface = Color(0xFF16161f);
@@ -189,6 +190,7 @@ void showSongMenu(BuildContext context, Song song) {
           subject: '${song.title} — ${song.artist}');
         break;
       case 'sleep': showSleepTimer(context); break;
+      case 'shared': addToShared(context, song); break;
       case 'album': if (song.albumId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumScreen(albumId: song.albumId!, title: song.album ?? ''))); break;
       case 'artist': if (song.artistId != null) Navigator.push(context, MaterialPageRoute(builder: (_) => ArtistScreen(artistId: song.artistId!, name: song.artist))); break;
       default: toast(context, 'Noted');
@@ -199,7 +201,7 @@ void showSongMenu(BuildContext context, Song song) {
         'playNext': Icons.skip_next, 'queue': Icons.queue_music, 'like': liked ? Icons.favorite : Icons.favorite_border,
         'playlist': Icons.playlist_add, 'radio': Icons.radio, 'download': downloaded ? Icons.download_done : Icons.download,
         'album': Icons.album, 'artist': Icons.person, 'hide': Icons.not_interested, 'block': Icons.block,
-        'share': Icons.ios_share, 'sleep': Icons.bedtime_outlined,
+        'share': Icons.ios_share, 'sleep': Icons.bedtime_outlined, 'shared': Icons.group_add,
       }[k] ?? Icons.circle;
 
   String label(String k) => k == 'download' ? (downloaded ? 'Downloaded' : 'Download') : (allMenuActions[k] ?? k);

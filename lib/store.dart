@@ -49,6 +49,10 @@ class Library extends ChangeNotifier {
   final List<Song> restorable = [];
   void clearRestorable() { restorable.clear(); notifyListeners(); }
 
+  /// Called when a song is liked, so the app can save it offline if the user
+  /// turned that on. Set from main().
+  void Function(Song)? onLiked;
+
   /// Called when the signed-in user changes. Pulls their library from the cloud
   /// (or seeds the cloud from local on first sign-in), then keeps it in sync.
   Future<void> bindUser(String? uid) async {
@@ -162,7 +166,7 @@ class Library extends ChangeNotifier {
   bool isLiked(int deezerId) => liked.any((s) => s.deezerId == deezerId);
   void toggleLike(Song s) {
     final i = liked.indexWhere((x) => x.deezerId == s.deezerId);
-    if (i >= 0) { liked.removeAt(i); } else { liked.insert(0, s); }
+    if (i >= 0) { liked.removeAt(i); } else { liked.insert(0, s); onLiked?.call(s); }
     _save('liked', liked.map((e) => e.toJson()).toList());
     notifyListeners();
   }

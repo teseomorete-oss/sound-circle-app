@@ -28,6 +28,16 @@ service cloud.firestore {
         || (request.auth != null && resource.data.uid == request.auth.uid);
     }
 
+    // Shared playlists: anyone signed in can create or open one by code, and
+    // members can add/remove songs.
+    match /shared/{code} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if isAdmin() ||
+        (request.auth != null && resource.data.ownerUid == request.auth.uid);
+    }
+
     // Update notice: everyone reads it, only the admin publishes it.
     match /config/{doc} {
       allow read: if true;

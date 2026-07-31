@@ -28,6 +28,7 @@ class Player extends ChangeNotifier {
   final List<Song> _radio = [];    // hidden autoplay buffer
   final Set<int> _manualIds = {};  // ids the user explicitly queued (never played yet)
   bool autoplay = true;
+  bool fadeTransitions = true; // short volume ramp instead of an abrupt cut
 
   Duration position = Duration.zero;
   Duration duration = Duration.zero;
@@ -390,7 +391,31 @@ class Player extends ChangeNotifier {
   /// Dismiss the offline/error banner.
   void clearError() { error = null; needsDownloads = false; notifyListeners(); }
 
-  void toggle() { _audio.playing ? _audio.pause() : _audio.play(); notifyListeners(); }
+  void toggle() { _audio.playing ? pause() : resume(); notifyListeners(); }
+
+  /// Fade the volume down, then pause — avoids the abrupt cut.
+  Future<void> pause() async {
+    if (!fadeTransitions) { await _audio.pause(); notifyListeners(); return; }
+    for (var v = 1.0; v > 0; v -= 0.15) {
+      await _audio.setVolume(v.clamp(0.0, 1.0));
+      await Future.delayed(const Duration(milliseconds: 18));
+    }
+    await _audio.pause();
+    await _audio.setVolume(1);
+    notifyListeners();
+  }
+
+  Future<void> resume() async {
+    if (!fadeTransitions) { _audio.play(); notifyListeners(); return; }
+    await _audio.setVolume(0);
+    _audio.play();
+    for (var v = 0.0; v < 1; v += 0.15) {
+      await _audio.setVolume(v.clamp(0.0, 1.0));
+      await Future.delayed(const Duration(milliseconds: 18));
+    }
+    await _audio.setVolume(1);
+    notifyListeners();
+  }
   void seek(Duration d) => _audio.seek(d);
 
   bool get repeatOne => _audio.loopMode == LoopMode.one;
