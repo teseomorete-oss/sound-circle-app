@@ -13,7 +13,13 @@ import 'deezer.dart';
 /// background. A hidden "radio" keeps it endless.
 class Player extends ChangeNotifier {
   final _yt = YoutubeExplode();
-  final _audio = AudioPlayer();
+
+  // Native Android audio effects, attached to the player's pipeline.
+  final equalizer = AndroidEqualizer();
+  final loudness = AndroidLoudnessEnhancer();
+  late final _audio = AudioPlayer(
+    audioPipeline: AudioPipeline(androidAudioEffects: [equalizer, loudness]),
+  );
   final _playlist = ConcatenatingAudioSource(children: []);
   bool _playlistSet = false;
 
@@ -386,6 +392,20 @@ class Player extends ChangeNotifier {
       _audio.play();
     } catch (_) {
     } finally { _recovering = false; }
+  }
+
+  /// Even out loudness between tracks (quiet songs get boosted).
+  Future<void> setVolumeLevelling(bool on) async {
+    try {
+      await loudness.setEnabled(on);
+      if (on) await loudness.setTargetGain(0.5); // ~+5 dB, gentle
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  Future<void> setEqualizerEnabled(bool on) async {
+    try { await equalizer.setEnabled(on); } catch (_) {}
+    notifyListeners();
   }
 
   /// Dismiss the offline/error banner.

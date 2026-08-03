@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'l10n.dart';
 
 const accents = <String, List<Color>>{
   'purple': [Color(0xFFA855F7), Color(0xFFEC4899)],
@@ -25,6 +26,7 @@ class Settings extends ChangeNotifier {
   bool dynamicTheme = true;
   bool showTrending = true;
   String displayName = '';
+  String language = 'en';
   List<String> menuBig = ['playNext', 'like', 'playlist'];
   List<String> menuOptions = ['queue', 'radio', 'download', 'share', 'sleep', 'shared', 'album', 'artist', 'hide', 'block'];
 
@@ -80,6 +82,8 @@ class Settings extends ChangeNotifier {
         dynamicTheme = b('dynamicTheme', dynamicTheme);
         showTrending = b('showTrending', showTrending);
         displayName = j['displayName'] ?? displayName;
+        language = j['language'] ?? language;
+        L.lang = language;
         menuBig = ((j['menuBig'] as List?)?.cast<String>()) ?? menuBig;
         menuOptions = ((j['menuOptions'] as List?)?.cast<String>()) ?? menuOptions;
         showQuickPicks = b('showQuickPicks', showQuickPicks);
@@ -110,7 +114,7 @@ class Settings extends ChangeNotifier {
   void _save() {
     _prefs?.setString('settings', jsonEncode({
       'accent': accent, 'amoled': amoled, 'autoplay': autoplay, 'dynamicTheme': dynamicTheme,
-      'showTrending': showTrending, 'displayName': displayName, 'menuBig': menuBig, 'menuOptions': menuOptions,
+      'showTrending': showTrending, 'displayName': displayName, 'language': language, 'menuBig': menuBig, 'menuOptions': menuOptions,
       'showQuickPicks': showQuickPicks, 'showQuickPlay': showQuickPlay, 'showMixes': showMixes,
       'showDiscover': showDiscover, 'showPlaylistsHome': showPlaylistsHome, 'showDownloadsHome': showDownloadsHome,
       'scrollingTitles': scrollingTitles, 'bigPlayerArt': bigPlayerArt,
@@ -123,5 +127,5 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  void update(void Function() change) { change(); _save(); }
+  void update(void Function() change) { change(); L.lang = language; _save(); }
 }

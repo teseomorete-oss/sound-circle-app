@@ -12,13 +12,14 @@ import 'player.dart';
 import 'store.dart';
 import 'settings.dart';
 import 'widgets.dart';
+import 'l10n.dart';
 import 'shared_playlists.dart';
 
 String greeting() {
   final h = DateTime.now().hour;
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 12) return 'goodMorning'.tr;
+  if (h < 18) return 'goodAfternoon'.tr;
+  return 'goodEvening'.tr;
 }
 
 // ---------------- Home ----------------
@@ -150,33 +151,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 )),
 
               if (settings.showQuickPicks && quickPicks.length >= 3) ...[
-                const SectionHeader('Quick picks'),
+                SectionHeader('quickPicks'.tr),
                 QuickPicks(songs: quickPicks),
               ],
 
               if (lib.history.isNotEmpty) ...[
-                const SectionHeader('Recently played'),
+                SectionHeader('recentlyPlayed'.tr),
                 ...lib.history.take(5).toList().asMap().entries.map((e) => SongTile(song: e.value, queue: lib.history, index: e.key)),
               ],
 
               if (settings.showQuickPlay && recommended.isNotEmpty) ...[
-                const SectionHeader('Made for you'),
+                SectionHeader('madeForYou'.tr),
                 CardShelf(children: recommended.take(15).toList().asMap().entries
                     .map((e) => SongCardW(song: e.value, queue: recommended, index: e.key)).toList()),
               ],
 
               if (settings.showMixes && mixes.isNotEmpty) ...[
-                const SectionHeader('Mixes & radios'),
+                SectionHeader('mixesRadios'.tr),
                 CardShelf(children: mixes),
               ],
 
               if (settings.showPlaylistsHome && lib.playlists.isNotEmpty) ...[
-                const SectionHeader('Your playlists'),
+                SectionHeader('yourPlaylists'.tr),
                 CardShelf(children: lib.playlists.map((p) => PlaylistCardW(playlist: p)).toList()),
               ],
 
               if (settings.showDownloadsHome && lib.downloads.isNotEmpty) ...[
-                const SectionHeader('Downloaded'),
+                SectionHeader('downloaded'.tr),
                 CardShelf(children: lib.downloads.take(15).toList().asMap().entries
                     .map((e) => SongCardW(song: e.value, queue: lib.downloads, index: e.key)).toList()),
               ],
@@ -189,24 +190,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // ---------- Discover ----------
               if (settings.showDiscover) ...[
-                const Padding(padding: EdgeInsets.fromLTRB(16, 26, 16, 0),
-                  child: Text('Discover', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
+                Padding(padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
+                  child: Text('discover'.tr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
                 if (topArtists.isNotEmpty) ...[
-                  SectionHeader(lib.history.isNotEmpty ? 'Your top artists' : 'Popular artists'),
+                  SectionHeader(lib.history.isNotEmpty ? 'topArtists'.tr : 'popularArtists'.tr),
                   CardShelf(children: topArtists.map((a) => ArtistCardW(artist: a)).toList()),
                 ],
                 if (settings.showTrending && trending.isNotEmpty) ...[
-                  const SectionHeader('Trending now'),
+                  SectionHeader('trendingNow'.tr),
                   ...trending.take(10).toList().asMap().entries.map((e) => ChartTile(song: e.value, queue: trending, index: e.key)),
                 ],
                 if (releases.isNotEmpty) ...[
-                  const SectionHeader('New releases'),
+                  SectionHeader('newReleases'.tr),
                   CardShelf(children: releases.map((a) => AlbumCardW(album: a)).toList()),
                 ],
               ],
 
               // Live charts — always fresh when opened
-              const SectionHeader('Charts & more'),
+              SectionHeader('chartsMore'.tr),
               Padding(padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Column(children: [
                   _ChartButton(icon: Icons.leaderboard, title: 'Billboard Hot 100', subtitle: 'The official U.S. weekly chart',
@@ -637,7 +638,7 @@ class LibraryScreen extends StatelessWidget {
       // Liked & Downloads as auto-playlists (like YT Music)
       _AutoPlaylistTile(
         gradient: const [Color(0xFFEC4899), Color(0xFF7C3AED)], icon: Icons.favorite,
-        title: 'Liked Songs', subtitle: 'Auto playlist · ${lib.liked.length} songs',
+        title: 'likedSongs'.tr, subtitle: 'Auto playlist · ${lib.liked.length} songs',
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SongListScreen(kind: SongListKind.liked))),
       ),
       if (lib.downloads.isNotEmpty)
@@ -649,14 +650,14 @@ class LibraryScreen extends StatelessWidget {
 
       _AutoPlaylistTile(
         gradient: const [Color(0xFF2563EB), Color(0xFF06B6D4)], icon: Icons.group,
-        title: 'Shared playlists', subtitle: 'Make one together with friends',
+        title: 'sharedPlaylists'.tr, subtitle: 'Make one together with friends',
         onTap: () => showSharedSheet(context),
       ),
 
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Playlists', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          Text('playlists'.tr, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           TextButton.icon(onPressed: () async {
             final name = await promptName(context);
             if (name != null && name.isNotEmpty) lib.createPlaylist(name);
@@ -674,7 +675,7 @@ class LibraryScreen extends StatelessWidget {
             )),
 
       if (lib.followed.isNotEmpty) ...[
-        const SectionHeader('Following'),
+        SectionHeader('following'.tr),
         CardShelf(children: lib.followed.map((a) => ArtistCardW(artist: a)).toList()),
       ],
       const SizedBox(height: 20),

@@ -7,6 +7,9 @@ import 'auth.dart';
 import 'remote_config.dart';
 import 'feedback.dart';
 import 'stats_screen.dart';
+import 'equalizer_screen.dart';
+import 'import_screen.dart';
+import 'l10n.dart';
 import 'widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -46,6 +49,20 @@ class SettingsScreen extends StatelessWidget {
           )),
         ),
 
+        _h('language'.tr),
+        ListTile(
+          leading: Icon(Icons.language, color: s.accentColors[0]),
+          title: Text('language'.tr),
+          trailing: DropdownButton<String>(
+            value: s.language,
+            underline: const SizedBox.shrink(),
+            items: L.supported.entries
+                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                .toList(),
+            onChanged: (v) { if (v != null) s.update(() => s.language = v); },
+          ),
+        ),
+
         _h('Appearance'),
         ListTile(
           title: const Text('Accent colour'),
@@ -79,6 +96,14 @@ class SettingsScreen extends StatelessWidget {
           subtitle: const Text('Fade in and out instead of cutting'),
           value: s.fadeTransitions,
           onChanged: (v) { s.update(() => s.fadeTransitions = v); player.fadeTransitions = v; }),
+
+        ListTile(
+          leading: Icon(Icons.equalizer, color: s.accentColors[0]),
+          title: Text('sound'.tr),
+          subtitle: const Text('Equalizer and volume levelling'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EqualizerScreen())),
+        ),
 
         _h('Queue sheet'),
         SwitchListTile(title: const Text('Expandable queue'), subtitle: const Text('Drag to grow/shrink while scrolling'),
@@ -146,6 +171,14 @@ class SettingsScreen extends StatelessWidget {
             : 'Stop playback after a while'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => showSleepTimer(context),
+        ),
+
+        ListTile(
+          leading: Icon(Icons.playlist_add, color: s.accentColors[0]),
+          title: Text('importYouTube'.tr),
+          subtitle: const Text('Bring a YouTube playlist across'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportScreen())),
         ),
 
         _h('Feedback'),
